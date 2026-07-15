@@ -101,6 +101,11 @@ mcpServer:
 
 ### 方向 B：聊天 UI（前端，Next.js）
 
+> **进度**：B1 / B3 / Enter 发送已实现（`ui/src/components/chat/ChatInterface.tsx`、`ChatMessage.tsx`）：
+> 输入区空闲高度从 ~220px 降到 ~60px，textarea 随内容自动伸缩（上限约 8 行）；
+> Enter 发送（带中文输入法 composition 保护，Shift+Enter 换行，Ctrl/Cmd+Enter 兼容）；
+> 消息列 `max-w-3xl` 居中、`break-words`、贴底跟随滚动 + "Latest" 回底悬浮按钮。
+
 #### B1. 输入框紧凑化（P0，收益最大、改动小）
 
 `ChatInterface.tsx` 底部 composer 重构：
@@ -140,14 +145,76 @@ mcpServer:
 
 ---
 
+### 方向 C：对话内工具控制、上下文管理与富输出（新需求设计）
+
+> 目标：让工具/权限控制"就在对话框旁边"，支持上传文件补充上下文，
+> 并让 Agent 输出的 md/html 文档可预览、可下载 —— 对齐 Claude/ChatGPT 类产品的会话体验。
+
+#### C1. 对话框旁的工具与权限快捷控制（P0）
+
+**交互设计**：在输入框左侧加一个"工具"按钮（滑块图标），点开 Popover 面板：
+
+```
+┌─ Tools & Permissions ──────────────────┐
+│ ✓ kubectl (kagent-tools)    [Ask ▾]    │   Ask / Always allow (session) /
+│ ✓ bash                      [Allow ▾]  │   Always allow (saved) / Disable
+│ ✗ helm                      [off]      │
+│ ────────────────────────────────────── │
+│ + Add tool…  (从已发现的 MCP 服务器选择) │
+└────────────────────────────────────────┘
+```
+
+- 数据已具备：`ChatLayoutUI` 已把 `allTools`（所有已发现的 MCP 工具）传给 `AgentDetailsSidebar`，当前 Agent 的工具列表在 `currentAgent.agent.spec.declarative.tools`，复用即可；
+- **持久修改**（增删工具、保存审批策略）：走已有的 Agent 更新 server action（等价于 PATCH Agent CRD），面板里改完即生效，无需进 Agent 编辑页；
+- **会话级修改**（"本会话总是允许"）：新增 session 级 policy，存 DB session metadata，HITL 审批层在弹审批前先查会话放行表——依赖方向 A2 的审批规则落地；
+- 注意权限边界：修改 Agent CRD 影响所有使用者，面板上要显式区分"仅本会话 / 保存到 Agent"两种作用域。
+
+**实现拆分**：
+1. C1a（纯前端，可先行）：Popover 展示工具清单 + 跳转/内嵌增删工具（复用 agent-form 的 ToolSelect 组件），保存走现有 update API；
+2. C1b（依赖 A2）：审批模式下拉 + 会话级放行。
+
+#### C2. 上下文管理：文件上传（P0）
+
+会话工作区已有 `uploads/`、`outputs/` 目录约定（Go/Python 运行时的 bash/file 工具都能读写，
+参见 `go/adk/pkg/tools/skills.go` 的工具描述），缺的只是"把文件送进去"的通道。
+
+**后端**（Go，controller HTTP server）：
+- `POST /api/sessions/{sessionId}/files` — multipart 上传，写入该会话工作区 `uploads/`（限制大小/类型，路径清洗）；
+- `GET /api/sessions/{sessionId}/files`、`GET .../files/{name}`（列表 + 下载）、`DELETE .../files/{name}`；
+- 对无文件工具的 Agent 兜底：小文本文件直接作为 A2A `FilePart`/文本内容随消息内联发送。
+
+**前端**：
+- 输入框加 "+" 按钮（含拖拽/粘贴上传），上传后在输入框上方显示文件 chips（可删除）；
+- 发送消息时把已上传文件名注入消息上下文（如自动附加 "已上传文件: uploads/data.csv"），让模型知道文件在哪；
+- 侧栏 "Context" 区块：列出本会话 uploads/ 与 outputs/ 内容，支持下载/删除。
+
+**风险点**：BYO Agent 和 sandbox/substrate 模式的工作区位置不同，第一期只支持 Declarative agent + 本地会话工作区，其余标注"暂不支持"。
+
+#### C3. 富输出：文档预览与下载（P0 前端部分，P1 Artifacts）
+
+**C3a. 代码块工具栏（纯前端，立即可做）**：
+- 现有 `CodeBlock.tsx` 已有复制，`HTMLPreviewDialog` 已支持 html 预览；统一为代码块右上角工具栏：**Copy / Preview / Download**；
+- Preview 支持：`html`（现有 iframe 沙箱预览）、`markdown`（渲染视图切换）、`svg`、`mermaid`（可引入 mermaid 渲染）；
+- Download 按语言映射扩展名（md/html/yaml/json/csv/py…），文件名取代码块首行注释或时间戳；
+- 长代码块默认折叠显示前 N 行 + "展开"，缓解"一坨输出撑满屏幕"。
+
+**C3b. Artifacts 面板（依赖 C2 的文件 API）**：
+- Agent 用 write_file/bash 写到 `outputs/` 的产物，右侧新增 "Artifacts" 面板自动列出；
+- 点击预览（md 渲染 / html 沙箱 iframe / 图片直显 / 其他给下载），一键下载；
+- 流式过程中收到 function_response 里出现 outputs/ 写入时，实时刷新面板并 toast 提示"生成了文档 xxx"。
+
+---
+
 ## 三、落地顺序建议
 
-| 阶段 | 内容 | 预估工作量 |
-|------|------|-----------|
-| 第 1 批 | B1 输入框 + B3 排版修复 + Enter 发送 | 1-2 天，纯前端，无 API 变更 |
-| 第 2 批 | B2 工具调用紧凑化 | 2-3 天，纯前端 |
-| 第 3 批 | A1 Builtin 工具 CRD 字段 + 运行时挂载 + E2E + 文档 | 1-2 周，Go 为主 |
-| 第 4 批 | A2 审批规则 + 会话级放行 + 对应 UI | 1 周 |
-| 第 5 批 | B4 会话体验、A3 kagent-tools 扩展 | 按需排期 |
+| 阶段 | 内容 | 预估工作量 | 状态 |
+|------|------|-----------|------|
+| 第 1 批 | B1 输入框 + B3 排版修复 + Enter 发送 | 1-2 天，纯前端 | ✅ 已实现 |
+| 第 2 批 | C3a 代码块 Preview/Download + B2 工具调用紧凑化 | 3-4 天，纯前端 | |
+| 第 3 批 | C1a 对话框旁工具面板（增删工具/跳转配置） | 2-3 天，前端 + 现有 API | |
+| 第 4 批 | C2 文件上传（上传 API + composer "+" 按钮 + Context 侧栏） | 1 周，Go + 前端 | |
+| 第 5 批 | A1 Builtin 工具 CRD 字段 + 运行时挂载 + E2E + 文档 | 1-2 周，Go 为主 | |
+| 第 6 批 | A2 审批规则 + C1b 会话级放行 UI | 1 周 | |
+| 第 7 批 | C3b Artifacts 面板、B4 会话体验、A3 kagent-tools 扩展 | 按需排期 | |
 
-前两批零风险快速见效；A1 是解决"agent 不能执行命令"的根本改动，涉及 CRD 变更需走 `make -C go generate` + E2E 流程（参见 kagent-dev skill）。
+第 2-3 批零后端风险快速见效；A1 是解决"agent 不能执行命令"的根本改动，涉及 CRD 变更需走 `make -C go generate` + E2E 流程（参见 kagent-dev skill）；C2 的上传 API 与 A1 无耦合，可并行开发。
