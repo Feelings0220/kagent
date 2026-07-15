@@ -155,6 +155,7 @@ export default function ChatLayoutUI({
               modelProvider: currentAgent.modelProvider,
               modelConfigRef: currentAgent.modelConfigRef,
             }}
+            agentDescription={currentAgent.agent.spec.description}
           >
             {children}
           </ChatAgentProvider>

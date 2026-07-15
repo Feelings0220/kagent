@@ -31,7 +31,7 @@ import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
-import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
+import { useChatAgentDescription, useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { Message, DataPart, FilePart, Task, TaskState } from "@a2a-js/sdk";
@@ -84,6 +84,7 @@ interface ChatInterfaceProps {
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
   const substrateSandbox = useChatSubstrateSandbox();
+  const agentDescription = useChatAgentDescription();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1104,11 +1105,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               </div>
             ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
-                <div className="max-w-md rounded-lg border bg-card p-6 text-center shadow-sm">
-                  <h2 className="mb-2 text-lg font-medium">Start a conversation</h2>
-                  <p className="text-muted-foreground">
-                    To begin chatting with the agent, type your message in the input box below.
-                  </p>
+                <div className="max-w-lg text-center px-6">
+                  <h2 className="mb-2 text-xl font-semibold">{selectedAgentName}</h2>
+                  {agentDescription && (
+                    <p className="mb-6 text-sm text-muted-foreground">{agentDescription}</p>
+                  )}
+                  <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span><kbd className="rounded border px-1">Enter</kbd> to send</span>
+                    <span><kbd className="rounded border px-1">Shift+Enter</kbd> for a new line</span>
+                    <span className="inline-flex items-center gap-1"><Paperclip className="h-3 w-3" aria-hidden /> attach files</span>
+                  </div>
                 </div>
               </div>
             ) : (

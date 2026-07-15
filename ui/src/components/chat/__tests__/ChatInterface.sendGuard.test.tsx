@@ -52,6 +52,7 @@ jest.mock("@/components/chat/ChatAgentContext", () => ({
   useChatSubstrateSandbox: () => false,
   useChatAgentType: () => undefined,
   useChatModelInfo: () => undefined,
+  useChatAgentDescription: () => undefined,
 }));
 
 jest.mock("@/components/chat/ChatMessage", () => ({

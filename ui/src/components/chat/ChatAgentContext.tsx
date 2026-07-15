@@ -17,6 +17,7 @@ type ChatAgentRuntimeContextValue = {
   runInSandbox: boolean;
   substrateSandbox: boolean;
   modelInfo?: ChatAgentModelInfo;
+  agentDescription?: string;
 };
 
 const ChatAgentRuntimeContext = createContext<ChatAgentRuntimeContextValue | undefined>(undefined);
@@ -26,19 +27,26 @@ export function ChatAgentProvider({
   runInSandbox = false,
   substrateSandbox = false,
   modelInfo,
+  agentDescription,
   children,
 }: {
   agentType: AgentType;
   runInSandbox?: boolean;
   substrateSandbox?: boolean;
   modelInfo?: ChatAgentModelInfo;
+  agentDescription?: string;
   children: ReactNode;
 }) {
   return (
-    <ChatAgentRuntimeContext.Provider value={{ agentType, runInSandbox, substrateSandbox, modelInfo }}>
+    <ChatAgentRuntimeContext.Provider value={{ agentType, runInSandbox, substrateSandbox, modelInfo, agentDescription }}>
       {children}
     </ChatAgentRuntimeContext.Provider>
   );
+}
+
+/** Description of the current chat agent (spec.description). */
+export function useChatAgentDescription(): string | undefined {
+  return useContext(ChatAgentRuntimeContext)?.agentDescription;
 }
 
 /** Agent type for the current chat route (from layout). Undefined outside provider. */
