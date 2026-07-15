@@ -73,10 +73,14 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
         return;
       }
       const tools = agentRes.data.agent.spec.declarative?.tools ?? [];
-      // Group per server so toggling/removal has one entry per server.
-      const { groupedTools } = groupMcpToolsByServer(tools);
-      setOriginalTools(groupedTools);
-      setDraftTools(groupedTools);
+      // Group MCP entries per server so toggling/removal has one entry per
+      // server; non-MCP/non-Agent entries (e.g. Builtin) must be carried
+      // through untouched — groupMcpToolsByServer would drop them.
+      const passthrough = tools.filter(t => !isMcpTool(t) && !isAgentTool(t));
+      const { groupedTools } = groupMcpToolsByServer(tools.filter(t => isMcpTool(t) || isAgentTool(t)));
+      const combined = [...groupedTools, ...passthrough];
+      setOriginalTools(combined);
+      setDraftTools(combined);
       setServers(serversRes.data ?? []);
       setAddFromServer(null);
     } finally {
@@ -134,6 +138,32 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
     setDraftTools(prev => prev.filter(tool => !(isAgentTool(tool) && tool.agent?.name === agentRefName)));
   };
 
+  /** Remove one built-in tool name; drops the entry when its list empties. */
+  const removeBuiltinName = (name: string) => {
+    setDraftTools(prev =>
+      prev.flatMap(tool => {
+        if (!tool.builtin) return [tool];
+        const names = tool.builtin.names.filter(n => n !== name);
+        if (names.length === 0) return [];
+        return [{ ...tool, builtin: { names } }];
+      })
+    );
+  };
+
+  /** Add a built-in workspace tool (bash / file tools) to the agent. */
+  const addBuiltinName = (name: string) => {
+    setDraftTools(prev => {
+      const existing = prev.find(tool => !!tool.builtin);
+      if (existing?.builtin) {
+        if (existing.builtin.names.includes(name)) return prev;
+        return prev.map(tool =>
+          tool === existing ? { ...tool, builtin: { names: [...existing.builtin!.names, name] } } : tool
+        );
+      }
+      return [...prev, { type: "Builtin" as const, builtin: { names: [name] } }];
+    });
+  };
+
   const addToolName = (server: ToolServerResponse, toolName: string) => {
     setDraftTools(prev => {
       const existing = prev.find(tool => isMcpTool(tool) && mcpServerRef(tool, namespace) === server.ref);
@@ -181,7 +211,9 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
 
   const mcpEntries = draftTools.filter(isMcpTool);
   const agentEntries = draftTools.filter(isAgentTool);
+  const builtinNames = draftTools.flatMap(tool => tool.builtin?.names ?? []);
   const selectedServer = servers.find(s => s.ref === addFromServer);
+  const BUILTIN_TOOL_NAMES = ["bash", "read_file", "write_file", "edit_file"];
   const alreadyAdded = new Set(
     mcpEntries.flatMap(t =>
       (t.mcpServer?.toolNames ?? []).map(n => `${mcpServerRef(t as Tool, namespace)}::${n}`)
@@ -214,9 +246,31 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
             </div>
           )}
 
-          {!isLoading && mcpEntries.length === 0 && agentEntries.length === 0 && (
+          {!isLoading && mcpEntries.length === 0 && agentEntries.length === 0 && builtinNames.length === 0 && (
             <div className="px-2 py-3 text-sm text-muted-foreground">
               This agent has no tools yet. Add some below.
+            </div>
+          )}
+
+          {!isLoading && builtinNames.length > 0 && (
+            <div>
+              <div className="px-2 pb-1 text-xs font-semibold">Built-in workspace tools</div>
+              {builtinNames.map(name => (
+                <div key={name} className="group flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
+                  <span className="flex-1 truncate text-sm">{name}</span>
+                  <span className="text-xs text-muted-foreground">builtin</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                    onClick={() => removeBuiltinName(name)}
+                    aria-label={`Remove ${name}`}
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -301,19 +355,37 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
             </div>
           )}
 
-          {!isLoading && servers.length > 0 && (
+          {!isLoading && (
             <div className="border-t pt-2">
               <button
                 type="button"
                 className="flex w-full items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                onClick={() => setAddFromServer(addFromServer === null ? (servers[0]?.ref ?? null) : null)}
+                onClick={() => setAddFromServer(addFromServer === null ? (servers[0]?.ref ?? "__builtin__") : null)}
                 aria-expanded={addFromServer !== null}
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden /> Add tools
                 <ChevronDown className={`h-3 w-3 transition-transform ${addFromServer !== null ? "rotate-180" : ""}`} aria-hidden />
               </button>
 
-              {addFromServer !== null && (
+              {addFromServer !== null && BUILTIN_TOOL_NAMES.some(n => !builtinNames.includes(n)) && (
+                <div className="mt-1 px-2">
+                  <div className="pb-1 text-[11px] text-muted-foreground">Built-in (bash & file tools, no MCP server needed)</div>
+                  <div className="flex flex-wrap gap-1">
+                    {BUILTIN_TOOL_NAMES.filter(n => !builtinNames.includes(n)).map(name => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => addBuiltinName(name)}
+                        className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
+                      >
+                        <Plus className="h-3 w-3" aria-hidden /> {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {addFromServer !== null && servers.length > 0 && addFromServer !== "__builtin__" && (
                 <div className="mt-1 space-y-1 px-2">
                   <select
                     className="w-full rounded-md border bg-transparent px-2 py-1 text-sm"

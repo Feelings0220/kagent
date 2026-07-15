@@ -353,6 +353,13 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolSpec.Type)
 			}
 
+		case tool.Builtin != nil:
+			for _, name := range tool.Builtin.Names {
+				if !slices.Contains(cfg.BuiltinTools, string(name)) {
+					cfg.BuiltinTools = append(cfg.BuiltinTools, string(name))
+				}
+			}
+
 		default:
 			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
 		}

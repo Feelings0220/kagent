@@ -467,18 +467,45 @@ type ServiceAccountConfig struct {
 }
 
 // ToolProviderType represents the tool provider type
-// +kubebuilder:validation:Enum=McpServer;Agent
+// +kubebuilder:validation:Enum=McpServer;Agent;Builtin
 type ToolProviderType string
 
 const (
 	ToolProviderType_McpServer ToolProviderType = "McpServer"
 	ToolProviderType_Agent     ToolProviderType = "Agent"
+	ToolProviderType_Builtin   ToolProviderType = "Builtin"
 )
+
+// BuiltinToolName identifies a built-in workspace tool provided by the agent
+// runtime. These tools operate on the per-session workspace directory
+// (uploads/, outputs/) and, for bash, execute inside the runtime sandbox.
+// +kubebuilder:validation:Enum=bash;read_file;write_file;edit_file
+type BuiltinToolName string
+
+const (
+	BuiltinToolName_Bash      BuiltinToolName = "bash"
+	BuiltinToolName_ReadFile  BuiltinToolName = "read_file"
+	BuiltinToolName_WriteFile BuiltinToolName = "write_file"
+	BuiltinToolName_EditFile  BuiltinToolName = "edit_file"
+)
+
+// BuiltinTool enables built-in workspace tools for the agent without
+// requiring skills or an MCP server. Currently supported by the Go
+// declarative runtime.
+type BuiltinTool struct {
+	// Names of the built-in tools to enable.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=4
+	// +required
+	Names []BuiltinToolName `json:"names"`
+}
 
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be nil if the type is not McpServer",rule="!(has(self.mcpServer) && self.type != 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
+// +kubebuilder:validation:XValidation:message="type.builtin must be nil if the type is not Builtin",rule="!(has(self.builtin) && self.type != 'Builtin')"
+// +kubebuilder:validation:XValidation:message="type.builtin must be specified for Builtin type",rule="!(!has(self.builtin) && self.type == 'Builtin')"
 type Tool struct {
 	// +optional
 	Type ToolProviderType `json:"type,omitempty"`
@@ -486,6 +513,10 @@ type Tool struct {
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
 	Agent *TypedReference `json:"agent,omitempty"`
+	// Builtin enables built-in workspace tools (bash, read_file, write_file,
+	// edit_file) provided directly by the agent runtime.
+	// +optional
+	Builtin *BuiltinTool `json:"builtin,omitempty"`
 
 	// HeadersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of

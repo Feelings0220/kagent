@@ -226,6 +226,44 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	return []tool.Tool{skillsTool, readFileTool, writeFileTool, editFileTool, bashTool}, nil
 }
 
+// NewWorkspaceTools returns the subset of workspace tools (bash, read_file,
+// write_file, edit_file) selected by names. Unlike NewSkillsTools it does not
+// require skills to be present: the workspace directory is created when
+// missing, and the skills discovery tool is never included. Unknown names are
+// ignored so a newer CRD enum value doesn't break an older runtime.
+func NewWorkspaceTools(workspaceDirectory string, names []string) ([]tool.Tool, error) {
+	workspaceDirectory = strings.TrimSpace(workspaceDirectory)
+	if workspaceDirectory == "" || len(names) == 0 {
+		return nil, nil
+	}
+
+	absWorkspaceDir, err := filepath.Abs(workspaceDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve workspace directory %q: %w", workspaceDirectory, err)
+	}
+	if err := os.MkdirAll(absWorkspaceDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create workspace directory %q: %w", absWorkspaceDir, err)
+	}
+
+	allTools, err := NewSkillsTools(absWorkspaceDir)
+	if err != nil {
+		return nil, err
+	}
+
+	requested := make(map[string]bool, len(names))
+	for _, name := range names {
+		requested[strings.TrimSpace(name)] = true
+	}
+
+	var selected []tool.Tool
+	for _, t := range allTools {
+		if requested[t.Name()] {
+			selected = append(selected, t)
+		}
+	}
+	return selected, nil
+}
+
 func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
 	sessionPath, err := skillruntime.GetSessionPath(sessionID, skillsDirectory)
 	if err != nil {
