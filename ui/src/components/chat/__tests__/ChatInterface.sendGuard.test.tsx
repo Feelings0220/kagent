@@ -50,6 +50,8 @@ jest.mock("@/hooks/useSpeechRecognition", () => ({
 jest.mock("@/components/chat/ChatAgentContext", () => ({
   useChatRunInSandbox: () => false,
   useChatSubstrateSandbox: () => false,
+  useChatAgentType: () => undefined,
+  useChatModelInfo: () => undefined,
 }));
 
 jest.mock("@/components/chat/ChatMessage", () => ({

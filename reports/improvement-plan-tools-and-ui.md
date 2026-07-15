@@ -198,6 +198,23 @@ mcpServer:
 - Download 按语言映射扩展名（md/html/yaml/json/csv/py…），文件名取代码块首行注释或时间戳；
 - 长代码块默认折叠显示前 N 行 + "展开"，缓解"一坨输出撑满屏幕"。
 
+#### C4. 会话内切换模型（P0，已实现）
+
+> 需求：在会话框附近直接切换模型 —— 不只是模型名，还包括 baseUrl 等 endpoint 配置。
+
+kagent 的模型抽象是 ModelConfig CRD（provider + model + baseUrl/endpoint + API key secret 等），
+Agent 通过 `spec.declarative.modelConfig` 按名字引用。因此"切换模型（含 baseUrl）" = 切换 ModelConfig 引用：
+
+- **输入框左侧新增模型选择器**（`ui/src/components/chat/ChatModelSwitcher.tsx`）：
+  显示当前模型名，点开列出 Agent 所在 namespace 的全部 ModelConfig，
+  每项展示 名称 / provider / model / baseUrl（OpenAI、Anthropic、Gemini、Ollama host、Azure endpoint）；
+- 选择后通过新增 server action `updateAgentModelConfig`（`ui/src/app/actions/agents.ts`）
+  更新 Agent 的 `spec.declarative.modelConfig`（后端 `PUT /api/agents` 是"取现有对象、只替换 spec"，无并发冲突问题）；
+- 面板底部 "New model" / "Manage" 直达 ModelConfig 创建/管理页（那里可配置 baseUrl、密钥等全部字段）；
+- 作用域说明：修改的是 Agent CRD（对所有会话生效）。会话级模型覆盖需要运行时支持 per-session model，
+  作为后续增强（可与 A2 会话级策略一起设计）；
+- 仅对 Declarative 非 sandbox agent 显示（BYO 自带模型，SandboxAgent 更新路径不同）。
+
 **C3b. Artifacts 面板（依赖 C2 的文件 API）**：
 - Agent 用 write_file/bash 写到 `outputs/` 的产物，右侧新增 "Artifacts" 面板自动列出；
 - 点击预览（md 渲染 / html 沙箱 iframe / 图片直显 / 其他给下载），一键下载；
@@ -210,7 +227,7 @@ mcpServer:
 | 阶段 | 内容 | 预估工作量 | 状态 |
 |------|------|-----------|------|
 | 第 1 批 | B1 输入框 + B3 排版修复 + Enter 发送 | 1-2 天，纯前端 | ✅ 已实现 |
-| 第 2 批 | C3a 代码块 Preview/Download + B2 工具调用紧凑化 | 3-4 天，纯前端 | |
+| 第 2 批 | C3a 代码块 Preview/Download + B2 工具调用紧凑化 + C4 模型切换器 | 3-4 天，前端 + 现有 API | ✅ 已实现 |
 | 第 3 批 | C1a 对话框旁工具面板（增删工具/跳转配置） | 2-3 天，前端 + 现有 API | |
 | 第 4 批 | C2 文件上传（上传 API + composer "+" 按钮 + Context 侧栏） | 1 周，Go + 前端 | |
 | 第 5 批 | A1 Builtin 工具 CRD 字段 + 运行时挂载 + E2E + 文档 | 1-2 周，Go 为主 | |
