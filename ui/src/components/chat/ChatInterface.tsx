@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowBigUp, ArrowDown, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, ArrowDown, FileText, Paperclip, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -34,12 +34,44 @@ import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
-import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
+import { Message, DataPart, FilePart, Task, TaskState } from "@a2a-js/sdk";
 
 // Task states where the agent is actively processing — resubscribe to live stream.
 const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
 // Task states that mean the session is busy (used by the cross-tab send guard).
 const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
+
+// Attachment limits: individual file size and count per message.
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 5;
+
+interface PendingAttachment {
+  name: string;
+  mimeType: string;
+  /** base64-encoded content (without the data: URI prefix). */
+  bytes: string;
+  size: number;
+}
+
+const readFileAsBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",", 2)[1] ?? "");
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+const attachmentToFilePart = (attachment: PendingAttachment): FilePart => ({
+  kind: "file",
+  file: {
+    bytes: attachment.bytes,
+    mimeType: attachment.mimeType || "application/octet-stream",
+    name: attachment.name,
+  },
+});
 
 
 interface ChatInterfaceProps {
@@ -61,6 +93,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const isNearBottomRef = useRef(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
@@ -265,9 +299,54 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [currentInputMessage]);
 
+  /** Validate and queue files as pending attachments for the next message. */
+  const addAttachments = async (files: File[]) => {
+    if (files.length === 0) return;
+    const accepted: PendingAttachment[] = [];
+    for (const file of files) {
+      if (pendingAttachments.length + accepted.length >= MAX_ATTACHMENTS) {
+        toast.error(`At most ${MAX_ATTACHMENTS} files per message`);
+        break;
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        toast.error(`${file.name} exceeds the ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)}MB limit`);
+        continue;
+      }
+      try {
+        const bytes = await readFileAsBase64(file);
+        accepted.push({ name: file.name, mimeType: file.type, bytes, size: file.size });
+      } catch (error) {
+        console.error("Failed to read file:", error);
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (accepted.length > 0) {
+      setPendingAttachments(prev => [...prev, ...accepted]);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    addAttachments(Array.from(e.target.files ?? []));
+    // Reset so selecting the same file again re-triggers the event.
+    e.target.value = "";
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length > 0) {
+      e.preventDefault();
+      addAttachments(files);
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setPendingAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
+    const hasContent = currentInputMessage.trim() || pendingAttachments.length > 0;
+    if (!hasContent || !selectedAgentName || !selectedNamespace) {
       return;
     }
 
@@ -277,6 +356,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     const userMessageText = currentInputMessage;
+    const attachments = pendingAttachments;
+    const restoreDraft = () => {
+      setCurrentInputMessage(userMessageText);
+      setPendingAttachments(attachments);
+    };
 
     // Cross-tab guard: fetch the latest session state before mutating anything.
     // Two cases: (1) another tab is still streaming — reconnect instead of sending;
@@ -299,6 +383,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     setCurrentInputMessage("");
+    setPendingAttachments([]);
     setChatStatus("thinking");
     // Sending a message always re-engages follow-scrolling.
     scrollToBottom();
@@ -317,10 +402,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       kind: "message",
       messageId,
       role: "user",
-      parts: [{
-        kind: "text",
-        text: userMessageText
-      }],
+      parts: [
+        {
+          kind: "text",
+          text: userMessageText
+        },
+        ...attachments.map(attachmentToFilePart),
+      ],
       contextId: guardSessionId,
       metadata: {
         timestamp: Date.now()
@@ -357,7 +445,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           if (newSessionResponse.error || !newSessionResponse.data) {
             toast.error("Failed to create session");
             setChatStatus("error");
-            setCurrentInputMessage(userMessageText);
+            restoreDraft();
             isCreatingSessionRef.current = false;
             return;
           }
@@ -383,7 +471,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           console.error("Error creating session:", error);
           toast.error("Error creating session");
           setChatStatus("error");
-          setCurrentInputMessage(userMessageText);
+          restoreDraft();
           isCreatingSessionRef.current = false;
           return;
         }
@@ -425,17 +513,20 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         messageId,
         contextId: currentSessionId,
       });
+      if (attachments.length > 0) {
+        a2aMessage.parts.push(...attachments.map(attachmentToFilePart));
+      }
 
       await streamA2AMessage(a2aMessage, {
         errorLabel: "Streaming failed",
-        onError: () => setCurrentInputMessage(userMessageText),
+        onError: restoreDraft,
         sessionIdForWait: currentSessionId,
       });
     } catch (error) {
       console.error("Error sending message or creating session:", error);
       toast.error("Error sending message or creating session");
       setChatStatus("error");
-      setCurrentInputMessage(userMessageText);
+      restoreDraft();
     }
   };
 
@@ -974,7 +1065,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // Shift+Enter inserts a newline.
     if (e.shiftKey) return;
     e.preventDefault();
-    if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+    if ((currentInputMessage.trim() || pendingAttachments.length > 0) && selectedAgentName && selectedNamespace && chatStatus === "ready") {
       handleSendMessage(e);
     }
   };
@@ -1082,6 +1173,29 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           </div>
         )}
 
+        {pendingAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pb-2">
+            {pendingAttachments.map((attachment, index) => (
+              <span
+                key={`${attachment.name}-${index}`}
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs"
+              >
+                <FileText className="h-3 w-3 text-muted-foreground" aria-hidden />
+                <span className="max-w-40 truncate">{attachment.name}</span>
+                <span className="text-muted-foreground">{Math.max(1, Math.round(attachment.size / 1024))}KB</span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(index)}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
+                  aria-label={`Remove ${attachment.name}`}
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={handleSendMessage} className="flex items-end gap-2">
           <div className="flex items-center pb-0.5">
             <ChatToolsPanel agentName={selectedAgentName} namespace={selectedNamespace} />
@@ -1094,11 +1208,31 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             onChange={(e) => setCurrentInputMessage(e.target.value)}
             placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             className={`flex-1 min-h-[36px] max-h-[200px] overflow-y-auto border-0 shadow-none p-1 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
             disabled={chatStatus !== "ready"}
           />
 
           <div className="flex items-center gap-1.5 pb-0.5">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileInputChange}
+              aria-hidden
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={chatStatus !== "ready"}
+              aria-label="Attach files"
+              title="Attach files (saved to the session workspace uploads/ folder)"
+            >
+              <Paperclip className="h-4 w-4" aria-hidden />
+            </Button>
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>
@@ -1143,7 +1277,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               <Button
                 type="submit"
                 size="icon"
-                disabled={!currentInputMessage.trim() || chatStatus !== "ready"}
+                disabled={(!currentInputMessage.trim() && pendingAttachments.length === 0) || chatStatus !== "ready"}
                 aria-label="Send message"
               >
                 <ArrowBigUp className="h-4 w-4" aria-hidden />

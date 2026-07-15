@@ -1,4 +1,5 @@
-import { Message, TextPart } from "@a2a-js/sdk";
+import { FilePart, Message, TextPart } from "@a2a-js/sdk";
+import { FileText } from "lucide-react";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
@@ -34,6 +35,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
+  const fileParts = (message.parts?.filter(part => part.kind === "file") || []) as FilePart[];
 
   const source = message.role === "user" ? "user" : "assistant";
   const tokenStats = (message.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
@@ -144,8 +146,8 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     return null;
   }
 
-  // Skip empty messages
-  if (!content) {
+  // Skip empty messages (attachment-only messages still render their chips)
+  if (!content && fileParts.length === 0) {
     return null;
   }
 
@@ -168,7 +170,20 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <KagentLogo className="w-4 h-4" />
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
-      <TruncatableText content={String(content)} className="break-words text-primary-foreground" />
+      {content && <TruncatableText content={String(content)} className="break-words text-primary-foreground" />}
+      {fileParts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-1">
+          {fileParts.map((part, index) => (
+            <span
+              key={index}
+              className="inline-flex items-center gap-1 rounded-md border bg-muted/50 px-2 py-0.5 text-xs"
+            >
+              <FileText className="h-3 w-3 text-muted-foreground" aria-hidden />
+              <span className="max-w-48 truncate">{part.file?.name || "attachment"}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
           {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
