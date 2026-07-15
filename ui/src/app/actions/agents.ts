@@ -675,6 +675,53 @@ export async function updateAgentModelConfig(
 }
 
 /**
+ * Replaces the tool list of a Declarative agent.
+ * Fetches the current Agent, replaces spec.declarative.tools, and PUTs the
+ * full object back (the backend copies only the spec onto the stored
+ * resource).
+ * @param agentName The agent name
+ * @param namespace The agent namespace
+ * @param tools The new tool list
+ * @returns A promise with the updated agent
+ */
+export async function updateAgentTools(
+  agentName: string,
+  namespace: string,
+  tools: Tool[]
+): Promise<BaseResponse<Agent>> {
+  try {
+    const current = await getAgent(agentName, namespace);
+    if (current.error || !current.data?.agent) {
+      throw new Error(current.message || current.error || "Failed to load agent");
+    }
+
+    const agent = current.data.agent;
+    if (agent.spec.type !== "Declarative" || !agent.spec.declarative) {
+      throw new Error("Only Declarative agents support editing tools here");
+    }
+
+    agent.spec.declarative.tools = tools;
+
+    const response = await fetchApi<BaseResponse<Agent>>(`/agents`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(agent),
+    });
+
+    if (!response?.data) {
+      throw new Error("Failed to update agent tools");
+    }
+
+    revalidateAgentListAndChat(namespace, agentName);
+    return { message: "Agent tools updated successfully", data: response.data };
+  } catch (error) {
+    return createErrorResponse<Agent>(error, "Error updating agent tools");
+  }
+}
+
+/**
  * Gets all agents, optionally filtered by namespace.
  * @param opts.namespace When set, calls `/agents?namespace=<ns>`; otherwise calls `/agents`.
  * @returns A promise with the matching agents

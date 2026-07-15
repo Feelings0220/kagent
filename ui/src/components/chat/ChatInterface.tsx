@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ChatModelSwitcher from "@/components/chat/ChatModelSwitcher";
+import ChatToolsPanel from "@/components/chat/ChatToolsPanel";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -1083,6 +1084,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
         <form onSubmit={handleSendMessage} className="flex items-end gap-2">
           <div className="flex items-center pb-0.5">
+            <ChatToolsPanel agentName={selectedAgentName} namespace={selectedNamespace} />
             <ChatModelSwitcher agentName={selectedAgentName} namespace={selectedNamespace} />
           </div>
           <Textarea
