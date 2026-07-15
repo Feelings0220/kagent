@@ -498,12 +498,12 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                 `json:"model"`
-	Description   string                `json:"description"`
-	Instruction   string                `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-	SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
+	Model        Model                 `json:"model"`
+	Description  string                `json:"description"`
+	Instruction  string                `json:"instruction"`
+	HttpTools    []HttpMcpServerConfig `json:"http_tools,omitempty"`
+	SseTools     []SseMcpServerConfig  `json:"sse_tools,omitempty"`
+	RemoteAgents []RemoteAgentConfig   `json:"remote_agents,omitempty"`
 	// BuiltinTools lists built-in workspace tools (bash, read_file,
 	// write_file, edit_file) to mount in the agent runtime. They operate on
 	// the per-session workspace and do not require skills to be configured.
