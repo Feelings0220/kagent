@@ -1,7 +1,8 @@
 "use client";
 import React, { useMemo, useState } from "react";
-import { Check, Copy, Download, Eye } from "lucide-react";
+import { Download, Eye } from "lucide-react";
 import { Button } from "../ui/button";
+import CopyButton from "@/components/CopyButton";
 import DocumentPreviewDialog, { PreviewKind } from "./DocumentPreviewDialog";
 
 const hasChildren = (props: unknown): props is { children: React.ReactNode } => {
@@ -62,7 +63,6 @@ const getLanguage = (className: string): string => {
 };
 
 const CodeBlock = ({ children, className }: { children: React.ReactNode[]; className: string }) => {
-  const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
   const language = getLanguage(className);
@@ -74,14 +74,6 @@ const CodeBlock = ({ children, className }: { children: React.ReactNode[]; class
     () => (children && children.length > 0 ? extractTextFromReactNode(children[0]) : ""),
     [children],
   );
-
-  const handleCopy = async () => {
-    if (codeContent) {
-      await navigator.clipboard.writeText(codeContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
 
   const handleDownload = () => {
     if (!codeContent) return;
@@ -127,15 +119,7 @@ const CodeBlock = ({ children, className }: { children: React.ReactNode[]; class
         >
           <Download size={16} />
         </Button>
-        <Button
-          variant="link"
-          onClick={handleCopy}
-          className={toolbarButtonClass}
-          aria-label="Copy to clipboard"
-          title={copied ? "Copied!" : "Copy to clipboard"}
-        >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-        </Button>
+        <CopyButton content={codeContent} variant="link" className={toolbarButtonClass} />
       </div>
       {previewKind && showPreview && (
         <DocumentPreviewDialog

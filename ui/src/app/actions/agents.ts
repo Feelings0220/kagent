@@ -637,10 +637,20 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
  * @param modelConfigName Name of a ModelConfig in the same namespace
  * @returns A promise with the updated agent
  */
-export async function updateAgentModelConfig(
+/**
+ * Read-modify-write helper for a single field of a Declarative agent's spec.
+ * Fetches the current Agent, applies `mutate` to spec.declarative, and PUTs
+ * the full object back (the backend copies only the spec onto the stored
+ * resource). Not conflict-safe — concurrent edits of different fields can
+ * clobber each other; a resourceVersion/PATCH follow-up would fix that here
+ * for both callers at once.
+ */
+async function updateDeclarativeAgentSpec(
   agentName: string,
   namespace: string,
-  modelConfigName: string
+  mutate: (declarative: NonNullable<Agent["spec"]["declarative"]>) => void,
+  successMessage: string,
+  errorLabel: string
 ): Promise<BaseResponse<Agent>> {
   try {
     const current = await getAgent(agentName, namespace);
@@ -650,10 +660,10 @@ export async function updateAgentModelConfig(
 
     const agent = current.data.agent;
     if (agent.spec.type !== "Declarative" || !agent.spec.declarative) {
-      throw new Error("Only Declarative agents support switching the model config");
+      throw new Error("Only Declarative agents are supported here");
     }
 
-    agent.spec.declarative.modelConfig = modelConfigName;
+    mutate(agent.spec.declarative);
 
     const response = await fetchApi<BaseResponse<Agent>>(`/agents`, {
       method: "PUT",
@@ -664,21 +674,34 @@ export async function updateAgentModelConfig(
     });
 
     if (!response?.data) {
-      throw new Error("Failed to update agent model config");
+      throw new Error(errorLabel);
     }
 
     revalidateAgentListAndChat(namespace, agentName);
-    return { message: "Model config updated successfully", data: response.data };
+    return { message: successMessage, data: response.data };
   } catch (error) {
-    return createErrorResponse<Agent>(error, "Error updating agent model config");
+    return createErrorResponse<Agent>(error, errorLabel);
   }
+}
+
+export async function updateAgentModelConfig(
+  agentName: string,
+  namespace: string,
+  modelConfigName: string
+): Promise<BaseResponse<Agent>> {
+  return updateDeclarativeAgentSpec(
+    agentName,
+    namespace,
+    (declarative) => {
+      declarative.modelConfig = modelConfigName;
+    },
+    "Model config updated successfully",
+    "Error updating agent model config"
+  );
 }
 
 /**
  * Replaces the tool list of a Declarative agent.
- * Fetches the current Agent, replaces spec.declarative.tools, and PUTs the
- * full object back (the backend copies only the spec onto the stored
- * resource).
  * @param agentName The agent name
  * @param namespace The agent namespace
  * @param tools The new tool list
@@ -689,36 +712,15 @@ export async function updateAgentTools(
   namespace: string,
   tools: Tool[]
 ): Promise<BaseResponse<Agent>> {
-  try {
-    const current = await getAgent(agentName, namespace);
-    if (current.error || !current.data?.agent) {
-      throw new Error(current.message || current.error || "Failed to load agent");
-    }
-
-    const agent = current.data.agent;
-    if (agent.spec.type !== "Declarative" || !agent.spec.declarative) {
-      throw new Error("Only Declarative agents support editing tools here");
-    }
-
-    agent.spec.declarative.tools = tools;
-
-    const response = await fetchApi<BaseResponse<Agent>>(`/agents`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(agent),
-    });
-
-    if (!response?.data) {
-      throw new Error("Failed to update agent tools");
-    }
-
-    revalidateAgentListAndChat(namespace, agentName);
-    return { message: "Agent tools updated successfully", data: response.data };
-  } catch (error) {
-    return createErrorResponse<Agent>(error, "Error updating agent tools");
-  }
+  return updateDeclarativeAgentSpec(
+    agentName,
+    namespace,
+    (declarative) => {
+      declarative.tools = tools;
+    },
+    "Agent tools updated successfully",
+    "Error updating agent tools"
+  );
 }
 
 /**

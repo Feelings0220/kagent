@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { FunctionCall, TokenStats } from "@/types";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
-import { FunctionSquare, CheckCircle, Clock, ChevronUp, ChevronDown, Loader2, Check, Copy, AlertCircle, ShieldAlert } from "lucide-react";
+import { FunctionSquare, CheckCircle, Clock, ChevronUp, ChevronDown, Loader2, AlertCircle, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import CopyButton from "@/components/CopyButton";
 import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
 import { convertToUserFriendlyName } from "@/lib/utils";
 
@@ -62,23 +63,9 @@ const statusIcon = (status: ToolCallStatus, isError: boolean) => {
   }
 };
 
-const CopyButton = ({ content }: { content: string }) => {
-  const [isCopied, setIsCopied] = useState(false);
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy text:", err);
-    }
-  };
-  return (
-    <Button variant="ghost" size="sm" className="absolute top-1 right-1 p-2" onClick={handleCopy} aria-label="Copy">
-      {isCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-    </Button>
-  );
-};
+const CornerCopyButton = ({ content }: { content: string }) => (
+  <CopyButton content={content} size={16} className="absolute top-1 right-1 p-2" />
+);
 
 /**
  * Compact single-row rendering used for all non-approval states. Click the
@@ -125,7 +112,7 @@ const CompactToolRow = ({ call, result, status, isError, subagentName, tokenStat
                   {JSON.stringify(call.args, null, 2)}
                 </pre>
               </ScrollArea>
-              <CopyButton content={JSON.stringify(call.args, null, 2)} />
+              <CornerCopyButton content={JSON.stringify(call.args, null, 2)} />
             </div>
           </div>
 
@@ -145,7 +132,7 @@ const CompactToolRow = ({ call, result, status, isError, subagentName, tokenStat
                     {result.content}
                   </pre>
                 </ScrollArea>
-                <CopyButton content={result.content} />
+                <CornerCopyButton content={result.content} />
               </div>
             </div>
           )}

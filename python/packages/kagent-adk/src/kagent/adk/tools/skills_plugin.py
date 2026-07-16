@@ -13,6 +13,27 @@ from .skill_tool import SkillsTool
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
+# Factory for each workspace tool. Tools that operate on the session
+# workspace take its directory; write/edit resolve paths per-session at call
+# time and take no constructor argument.
+def _workspace_tool_factories(workspace: Path):
+    return {
+        "bash": lambda: BashTool(workspace),
+        "read_file": lambda: ReadFileTool(workspace),
+        "write_file": lambda: WriteFileTool(),
+        "edit_file": lambda: EditFileTool(),
+    }
+
+
+def _append_workspace_tools(agent: LlmAgent, workspace: Path, names) -> None:
+    """Append the named workspace tools not already present on the agent."""
+    existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
+    for name, factory in _workspace_tool_factories(workspace).items():
+        if name in names and name not in existing_tool_names:
+            agent.tools.append(factory())
+            logger.debug(f"Added {name} tool to agent: {agent.name}")
+
+
 def add_builtin_tools_to_agent(
     agent: BaseAgent,
     names: list[str],
@@ -36,24 +57,7 @@ def add_builtin_tools_to_agent(
     )
     workspace.mkdir(parents=True, exist_ok=True)
 
-    existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
-    requested = set(names)
-
-    if "bash" in requested and "bash" not in existing_tool_names:
-        agent.tools.append(BashTool(workspace))
-        logger.debug(f"Added builtin bash tool to agent: {agent.name}")
-
-    if "read_file" in requested and "read_file" not in existing_tool_names:
-        agent.tools.append(ReadFileTool(workspace))
-        logger.debug(f"Added builtin read file tool to agent: {agent.name}")
-
-    if "write_file" in requested and "write_file" not in existing_tool_names:
-        agent.tools.append(WriteFileTool())
-        logger.debug(f"Added builtin write file tool to agent: {agent.name}")
-
-    if "edit_file" in requested and "edit_file" not in existing_tool_names:
-        agent.tools.append(EditFileTool())
-        logger.debug(f"Added builtin edit file tool to agent: {agent.name}")
+    _append_workspace_tools(agent, workspace, set(names))
 
 
 def add_skills_tool_to_agent(
@@ -73,24 +77,10 @@ def add_skills_tool_to_agent(
     skills_directory = Path(skills_directory)
     existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
 
-    # Add SkillsTool if not already present
+    # Add SkillsTool (discovery) if not already present; the workspace tools
+    # below are shared with the builtin-tools path.
     if "skills" not in existing_tool_names:
         agent.tools.append(SkillsTool(skills_directory))
         logger.debug(f"Added skills invoke tool to agent: {agent.name}")
 
-    # Add BashTool if not already present
-    if "bash" not in existing_tool_names:
-        agent.tools.append(BashTool(skills_directory))
-        logger.debug(f"Added bash tool to agent: {agent.name}")
-
-    if "read_file" not in existing_tool_names:
-        agent.tools.append(ReadFileTool(skills_directory))
-        logger.debug(f"Added read file tool to agent: {agent.name}")
-
-    if "write_file" not in existing_tool_names:
-        agent.tools.append(WriteFileTool())
-        logger.debug(f"Added write file tool to agent: {agent.name}")
-
-    if "edit_file" not in existing_tool_names:
-        agent.tools.append(EditFileTool())
-        logger.debug(f"Added edit file tool to agent: {agent.name}")
+    _append_workspace_tools(agent, skills_directory, {"bash", "read_file", "write_file", "edit_file"})

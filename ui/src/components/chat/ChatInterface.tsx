@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowBigUp, ArrowDown, FileText, Paperclip, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, ArrowDown, Paperclip, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ChatModelSwitcher from "@/components/chat/ChatModelSwitcher";
 import ChatToolsPanel from "@/components/chat/ChatToolsPanel";
+import AttachmentChip from "@/components/chat/AttachmentChip";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -1206,22 +1207,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         {pendingAttachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pb-2">
             {pendingAttachments.map((attachment, index) => (
-              <span
+              <AttachmentChip
                 key={`${attachment.name}-${index}`}
-                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs"
-              >
-                <FileText className="h-3 w-3 text-muted-foreground" aria-hidden />
-                <span className="max-w-40 truncate">{attachment.name}</span>
-                <span className="text-muted-foreground">{Math.max(1, Math.round(attachment.size / 1024))}KB</span>
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(index)}
-                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
-                  aria-label={`Remove ${attachment.name}`}
-                >
-                  <X className="h-3 w-3" aria-hidden />
-                </button>
-              </span>
+                name={attachment.name}
+                size={attachment.size}
+                variant="solid"
+                onRemove={() => removeAttachment(index)}
+              />
             ))}
           </div>
         )}

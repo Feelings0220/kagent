@@ -1,6 +1,6 @@
 import { FilePart, Message, TextPart } from "@a2a-js/sdk";
-import { FileText } from "lucide-react";
 import { TruncatableText } from "@/components/chat/TruncatableText";
+import AttachmentChip from "@/components/chat/AttachmentChip";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
@@ -174,13 +174,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
       {fileParts.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-1">
           {fileParts.map((part, index) => (
-            <span
-              key={index}
-              className="inline-flex items-center gap-1 rounded-md border bg-muted/50 px-2 py-0.5 text-xs"
-            >
-              <FileText className="h-3 w-3 text-muted-foreground" aria-hidden />
-              <span className="max-w-48 truncate">{part.file?.name || "attachment"}</span>
-            </span>
+            <AttachmentChip key={index} name={part.file?.name || "attachment"} />
           ))}
         </div>
       )}
