@@ -1,7 +1,8 @@
 "use client";
-import React, { useState } from "react";
-import { Check, Copy, Download, Eye } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { Download, Eye } from "lucide-react";
 import { Button } from "../ui/button";
+import CopyButton from "@/components/CopyButton";
 import DocumentPreviewDialog, { PreviewKind } from "./DocumentPreviewDialog";
 
 const hasChildren = (props: unknown): props is { children: React.ReactNode } => {
@@ -62,28 +63,19 @@ const getLanguage = (className: string): string => {
 };
 
 const CodeBlock = ({ children, className }: { children: React.ReactNode[]; className: string }) => {
-  const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
   const language = getLanguage(className);
   const previewKind = PREVIEW_KINDS[language];
 
-  const getCodeContent = (): string => {
-    if (!children || children.length === 0) return "";
-    return extractTextFromReactNode(children[0]);
-  };
-
-  const handleCopy = async () => {
-    const codeContent = getCodeContent();
-    if (codeContent) {
-      await navigator.clipboard.writeText(codeContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  // Extraction walks the whole node tree; memoize it so streaming re-renders
+  // of the transcript don't re-extract every code block on every chunk.
+  const codeContent = useMemo(
+    () => (children && children.length > 0 ? extractTextFromReactNode(children[0]) : ""),
+    [children],
+  );
 
   const handleDownload = () => {
-    const codeContent = getCodeContent();
     if (!codeContent) return;
     const extension = LANGUAGE_EXTENSIONS[language] || "txt";
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -127,19 +119,11 @@ const CodeBlock = ({ children, className }: { children: React.ReactNode[]; class
         >
           <Download size={16} />
         </Button>
-        <Button
-          variant="link"
-          onClick={handleCopy}
-          className={toolbarButtonClass}
-          aria-label="Copy to clipboard"
-          title={copied ? "Copied!" : "Copy to clipboard"}
-        >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-        </Button>
+        <CopyButton content={codeContent} variant="link" className={toolbarButtonClass} />
       </div>
-      {previewKind && (
+      {previewKind && showPreview && (
         <DocumentPreviewDialog
-          content={getCodeContent()}
+          content={codeContent}
           kind={previewKind}
           open={showPreview}
           onOpenChange={setShowPreview}

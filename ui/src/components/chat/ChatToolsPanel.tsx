@@ -16,7 +16,7 @@ import {
 import { getAgent, updateAgentTools } from "@/app/actions/agents";
 import { getServers } from "@/app/actions/servers";
 import { useChatAgentType, useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
-import { isAgentTool, isMcpTool, groupMcpToolsByServer, parseGroupKind } from "@/lib/toolUtils";
+import { isAgentTool, isMcpTool, parseGroupKind } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import type { Tool, ToolServerResponse } from "@/types";
 
@@ -31,6 +31,14 @@ const mcpServerRef = (tool: Tool, agentNamespace: string): string => {
   if (!mcp) return "";
   if (k8sRefUtils.isValidRef(mcp.name)) return mcp.name;
   return k8sRefUtils.toRef(mcp.namespace || agentNamespace, mcp.name);
+};
+
+/** Fully-qualified ref ("ns/name") for an Agent tool entry. */
+const agentToolRef = (tool: Tool): string => {
+  const agent = tool.agent;
+  if (!agent) return "";
+  if (k8sRefUtils.isValidRef(agent.name)) return agent.name;
+  return k8sRefUtils.toRef(agent.namespace || "", agent.name);
 };
 
 /**
@@ -73,14 +81,13 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
         return;
       }
       const tools = agentRes.data.agent.spec.declarative?.tools ?? [];
-      // Group MCP entries per server so toggling/removal has one entry per
-      // server; non-MCP/non-Agent entries (e.g. Builtin) must be carried
-      // through untouched — groupMcpToolsByServer would drop them.
-      const passthrough = tools.filter(t => !isMcpTool(t) && !isAgentTool(t));
-      const { groupedTools } = groupMcpToolsByServer(tools.filter(t => isMcpTool(t) || isAgentTool(t)));
-      const combined = [...groupedTools, ...passthrough];
-      setOriginalTools(combined);
-      setDraftTools(combined);
+      // Use the raw Tool entries as the edit model. The per-tool edit helpers
+      // spread the original entry, so fields the panel doesn't surface (e.g.
+      // headersFrom) survive a save. Grouping here (groupMcpToolsByServer)
+      // would drop those fields and merge same-named servers across
+      // namespaces, corrupting the spec on the write path.
+      setOriginalTools(tools);
+      setDraftTools(tools);
       setServers(serversRes.data ?? []);
       setAddFromServer(null);
     } finally {
@@ -134,8 +141,10 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
     );
   };
 
-  const removeAgentTool = (agentRefName: string) => {
-    setDraftTools(prev => prev.filter(tool => !(isAgentTool(tool) && tool.agent?.name === agentRefName)));
+  const removeAgentTool = (agentRef: string) => {
+    setDraftTools(prev =>
+      prev.filter(tool => !(isAgentTool(tool) && agentToolRef(tool) === agentRef)),
+    );
   };
 
   /** Remove one built-in tool name; drops the entry when its list empties. */
@@ -334,24 +343,27 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
           {!isLoading && agentEntries.length > 0 && (
             <div>
               <div className="px-2 pb-1 text-xs font-semibold">Agent tools</div>
-              {agentEntries.map(tool => (
-                <div key={tool.agent!.name} className="group flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
-                  <span className="flex-1 truncate text-sm">
-                    {k8sRefUtils.toRef(tool.agent!.namespace || namespace, tool.agent!.name)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">agent</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => removeAgentTool(tool.agent!.name)}
-                    aria-label={`Remove agent tool ${tool.agent!.name}`}
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                  </Button>
-                </div>
-              ))}
+              {agentEntries.map(tool => {
+                const ref = agentToolRef(tool);
+                return (
+                  <div key={ref} className="group flex items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
+                    <span className="flex-1 truncate text-sm">
+                      {k8sRefUtils.toRef(tool.agent!.namespace || namespace, tool.agent!.name)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">agent</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                      onClick={() => removeAgentTool(ref)}
+                      aria-label={`Remove agent tool ${ref}`}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
 

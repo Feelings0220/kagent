@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowBigUp, ArrowDown, FileText, Paperclip, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, ArrowDown, Paperclip, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ChatModelSwitcher from "@/components/chat/ChatModelSwitcher";
 import ChatToolsPanel from "@/components/chat/ChatToolsPanel";
+import AttachmentChip from "@/components/chat/AttachmentChip";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -68,6 +69,18 @@ const attachmentToFilePart = (attachment: PendingAttachment): FilePart => ({
   kind: "file",
   file: {
     bytes: attachment.bytes,
+    mimeType: attachment.mimeType || "application/octet-stream",
+    name: attachment.name,
+  },
+});
+
+// Display-only file part: the chat transcript only renders the file name, so
+// the copy kept in React state omits the base64 bytes (which can be tens of
+// MB) to avoid retaining them for the session lifetime.
+const attachmentToDisplayPart = (attachment: PendingAttachment): FilePart => ({
+  kind: "file",
+  file: {
+    bytes: "",
     mimeType: attachment.mimeType || "application/octet-stream",
     name: attachment.name,
   },
@@ -177,6 +190,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       pendingDecisionsRef.current = {};
       pendingRejectionReasonsRef.current = {};
       pendingTurnStatsRef.current = undefined;
+      // The ChatInterface instance is reused across session switches; re-arm
+      // follow-scrolling so a new session opens pinned to its latest message.
+      isNearBottomRef.current = true;
+      setShowJumpToLatest(false);
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -403,12 +420,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       kind: "message",
       messageId,
       role: "user",
+      // Only include a text part when there is text — some providers reject
+      // empty text content blocks (attachment-only sends).
       parts: [
-        {
-          kind: "text",
-          text: userMessageText
-        },
-        ...attachments.map(attachmentToFilePart),
+        ...(userMessageText ? [{ kind: "text" as const, text: userMessageText }] : []),
+        ...attachments.map(attachmentToDisplayPart),
       ],
       contextId: guardSessionId,
       metadata: {
@@ -515,6 +531,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         contextId: currentSessionId,
       });
       if (attachments.length > 0) {
+        // Drop an empty text part so attachment-only sends don't ship an
+        // empty text content block (rejected by some providers).
+        if (!userMessageText) {
+          a2aMessage.parts = a2aMessage.parts.filter(
+            part => part.kind !== "text" || (part as { text: string }).text !== "",
+          );
+        }
         a2aMessage.parts.push(...attachments.map(attachmentToFilePart));
       }
 
@@ -1061,8 +1084,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== "Enter") return;
     // Don't send while an IME composition is in progress (e.g. Chinese/Japanese
-    // input) — Enter is confirming the composition, not submitting.
-    if (e.nativeEvent.isComposing) return;
+    // input) — Enter is confirming the composition, not submitting. keyCode 229
+    // is the legacy signal browsers (notably Safari) emit for the composition
+    // commit keydown, where isComposing has already flipped back to false.
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     // Shift+Enter inserts a newline.
     if (e.shiftKey) return;
     e.preventDefault();
@@ -1182,22 +1207,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         {pendingAttachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pb-2">
             {pendingAttachments.map((attachment, index) => (
-              <span
+              <AttachmentChip
                 key={`${attachment.name}-${index}`}
-                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs"
-              >
-                <FileText className="h-3 w-3 text-muted-foreground" aria-hidden />
-                <span className="max-w-40 truncate">{attachment.name}</span>
-                <span className="text-muted-foreground">{Math.max(1, Math.round(attachment.size / 1024))}KB</span>
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(index)}
-                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
-                  aria-label={`Remove ${attachment.name}`}
-                >
-                  <X className="h-3 w-3" aria-hidden />
-                </button>
-              </span>
+                name={attachment.name}
+                size={attachment.size}
+                variant="solid"
+                onRemove={() => removeAttachment(index)}
+              />
             ))}
           </div>
         )}
