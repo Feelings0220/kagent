@@ -1,11 +1,13 @@
-# Built-in Workspace Tools & Session File Uploads
+# Built-in Workspace Tools, Session File Uploads & Artifacts
 
-This document covers two related capabilities:
+This document covers three related capabilities:
 
 1. **Built-in workspace tools** — give a Declarative agent command execution
    (`bash`) and file tools without configuring skills or an MCP server.
 2. **Session file uploads** — attach files in the chat UI; they are saved into
    the agent's per-session workspace where those tools can read them.
+3. **Session artifacts** — files the agent writes to `outputs/` surface in the
+   chat UI with preview and download.
 
 ## Built-in workspace tools
 
@@ -100,5 +102,26 @@ content types.
 2. The runtime saves it to `uploads/data.csv` and tells the model where it is.
 3. The agent runs e.g. `read_file uploads/data.csv` or
    `bash("head -5 uploads/data.csv")` and answers.
+
+## Session artifacts
+
+Files the agent writes to the session `outputs/` directory (via `write_file`
+or `bash`) are emitted after each turn as A2A task artifacts (Go runtime):
+
+- Each new or modified file becomes an artifact named after its
+  `outputs/`-relative path, with the content inlined as base64 (up to 2 MB per
+  file, at most 10 files per turn; larger files get a placeholder note).
+- Artifacts persist with the task, so they survive reloads and appear when an
+  old session is reopened.
+- The chat UI shows an **Artifacts** bar above the composer listing the files,
+  with preview (markdown, HTML in a sandboxed iframe, SVG, images) and
+  download. Re-generated files replace their earlier version in the panel.
+
+Typical flow:
+
+1. Ask: "Analyze uploads/data.csv and write a report to outputs/report.md".
+2. The agent writes the file with its workspace tools; when the turn
+   completes, `report.md` appears in the Artifacts bar.
+3. Click the eye icon to preview the rendered markdown, or download it.
 
 [skills]: ./architecture/crds-and-types.md

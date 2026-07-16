@@ -1,10 +1,68 @@
-import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
+import { Artifact, FilePart, Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
 import { convertToUserFriendlyName, isAgentToolName, messageUtils } from "@/lib/utils";
 import { ApprovalDecision, AdkRequestConfirmationData, HitlPartInfo, ToolDecision, TokenStats, ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
 // Helper functions for extracting data from stored tasks
+/** A session output file emitted by the agent runtime as an A2A artifact. */
+export interface FileArtifact {
+  /** File name (path relative to the session outputs/ directory). */
+  name: string;
+  /** Workspace path, e.g. "outputs/report.md". */
+  path: string;
+  mimeType: string;
+  size: number;
+  /** base64 content; absent when the file exceeded the inline size cap. */
+  bytes?: string;
+  /** Placeholder text for oversized files. */
+  note?: string;
+  taskId?: string;
+}
+
+/** True when an A2A artifact is a kagent session output file. */
+export function isFileArtifact(artifact: Artifact | undefined | null): boolean {
+  return getMetadataValue<string>(artifact?.metadata as Record<string, unknown>, "type") === "file_artifact";
+}
+
+/** Convert a kagent file artifact into the UI shape; null for other artifacts. */
+export function toFileArtifact(artifact: Artifact, taskId?: string): FileArtifact | null {
+  if (!isFileArtifact(artifact)) return null;
+  const metadata = artifact.metadata as Record<string, unknown> | undefined;
+  const filePart = artifact.parts?.find(part => part.kind === "file") as FilePart | undefined;
+  const textPart = artifact.parts?.find(part => part.kind === "text") as TextPart | undefined;
+  const fileWithBytes = filePart?.file as { bytes?: string; mimeType?: string } | undefined;
+  return {
+    name: artifact.name || "artifact",
+    path: getMetadataValue<string>(metadata, "path") || artifact.name || "",
+    mimeType:
+      getMetadataValue<string>(metadata, "mime_type") ||
+      fileWithBytes?.mimeType ||
+      "application/octet-stream",
+    size: getMetadataValue<number>(metadata, "size") ?? 0,
+    bytes: fileWithBytes?.bytes,
+    note: textPart?.text,
+    taskId,
+  };
+}
+
+/**
+ * Collect session output files from stored tasks. Deduplicated by name with
+ * later tasks winning, so re-generated files show their latest version.
+ */
+export function extractFileArtifactsFromTasks(tasks: Task[]): FileArtifact[] {
+  const byName = new Map<string, FileArtifact>();
+  for (const task of tasks) {
+    for (const artifact of task.artifacts ?? []) {
+      const fileArtifact = toFileArtifact(artifact, task.id);
+      if (fileArtifact) {
+        byName.set(fileArtifact.name, fileArtifact);
+      }
+    }
+  }
+  return Array.from(byName.values());
+}
+
 export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   const messages: Message[] = [];
   const seenMessageIds = new Set<string>();
@@ -686,6 +744,8 @@ export type MessageHandlers = {
    * every time `createMessageHandlers` is called.
    */
   pendingTurnStats?: { current: TokenStats | undefined };
+  /** Called when the agent emits a session output file artifact. */
+  onFileArtifact?: (artifact: FileArtifact) => void;
   agentContext?: {
     namespace: string;
     agentName: string;
@@ -1015,6 +1075,15 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   };
 
   const handleA2ATaskArtifactUpdate = (artifactUpdate: TaskArtifactUpdateEvent) => {
+    // Session output files are routed to the artifacts panel, not the text stream.
+    if (isFileArtifact(artifactUpdate.artifact)) {
+      const fileArtifact = toFileArtifact(artifactUpdate.artifact, artifactUpdate.taskId);
+      if (fileArtifact) {
+        handlers.onFileArtifact?.(fileArtifact);
+      }
+      return;
+    }
+
     let adkMetadata = getADKMetadata(artifactUpdate);
     if (!adkMetadata && artifactUpdate.artifact) {
       adkMetadata = getADKMetadata(artifactUpdate.artifact);
