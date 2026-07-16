@@ -14,7 +14,7 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
-from .tools import add_skills_tool_to_agent
+from .tools import add_builtin_tools_to_agent, add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
@@ -49,6 +49,12 @@ def maybe_add_skills_with_config(root_agent: BaseAgent, agent_config: Optional[A
         logger.info(f"Adding skills from directory: {skills_directory}")
         add_skills_tool_to_agent(skills_directory, root_agent)
 
+    # Built-in workspace tools requested via spec.declarative.tools[].builtin.
+    # add_builtin_tools_to_agent skips names already provided by skills.
+    if agent_config and agent_config.builtin_tools:
+        logger.info(f"Adding builtin workspace tools: {agent_config.builtin_tools}")
+        add_builtin_tools_to_agent(root_agent, agent_config.builtin_tools, skills_directory)
+
 
 @app.command()
 def static(
@@ -77,6 +83,15 @@ def static(
         if plugins is None:
             plugins = []
         plugins.append(LLMPassthroughPlugin())
+
+    # Persist uploaded files (A2A file parts) into the session workspace when
+    # the agent has tools that can read them (skills or builtin workspace tools).
+    if os.getenv("KAGENT_SKILLS_FOLDER") or agent_config.builtin_tools:
+        from ._upload_plugin import UploadMaterializerPlugin
+
+        if plugins is None:
+            plugins = []
+        plugins.append(UploadMaterializerPlugin())
 
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)

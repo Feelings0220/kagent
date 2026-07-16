@@ -75,8 +75,18 @@ spec:
 **后续（第二期）**：
 - 命令级权限（allowedCommands/deniedCommands + HITL 默认审批）——依赖 A2 规则引擎；
 - builtin 工具的 requireApproval 支持（目前 requireApproval 仅 MCP 工具）；
-- Python 运行时消费 `builtin_tools`；
+- ✅ Python 运行时消费 `builtin_tools`（已实现，见下）；
 - E2E 测试（需要 kind 集群，本环境无法运行；CI 中补）。
+
+**Python 运行时对等支持（✅ 已实现）**：
+- `AgentConfig.builtin_tools` 字段（`types.py`）+ `add_builtin_tools_to_agent()`
+  （`tools/skills_plugin.py`：按名字挂载 bash/read_file/write_file/edit_file，
+  自动创建工作区目录、忽略未知名字、与 skills 已挂载的工具去重），cli 启动时接线；
+- 上传落盘：新增 `UploadMaterializerPlugin`（`_upload_plugin.py`，google-adk 插件
+  `on_user_message_callback`）——与 Go 端 materializeInboundFiles 行为一致：
+  非图片文件写入会话 `uploads/` 并替换为文本注记，图片额外保留 inline；
+  仅在配置了 skills 或 builtin 工具时启用；
+- 15 个 pytest 单测覆盖（挂载/过滤/去重/文件名清洗/重名后缀/落盘/图片/纯文本消息）。
 
 #### A2. 细粒度审批规则（P1）
 
