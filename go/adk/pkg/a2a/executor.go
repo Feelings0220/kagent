@@ -187,6 +187,11 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	// bash/file tools can access them; see materializeInboundFiles for details.
 	inboundMessage = materializeInboundFiles(inboundMessage, sessionID, e.skillsDirectory, e.logger)
 
+	// 5c. Snapshot outputs/ so files the agent writes this turn can be
+	// emitted as A2A file artifacts after the run (see artifacts.go).
+	outputsDir := sessionOutputsDir(sessionID, e.skillsDirectory)
+	outputsBefore := snapshotOutputs(outputsDir)
+
 	// 6. Convert inbound message to *genai.Content using kagent a2aPartConverter.
 	content, err := messageToGenAIContent(ctx, inboundMessage)
 	if err != nil {
@@ -380,6 +385,15 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		inputRequired.Final = true
 		inputRequired.Metadata = finalMeta
 		return queue.Write(ctx, inputRequired)
+	}
+
+	// Emit file artifacts for outputs/ files created or modified this turn.
+	for _, artifact := range buildOutputArtifacts(outputsDir, outputsBefore, e.logger) {
+		event := a2atype.NewArtifactEvent(reqCtx)
+		event.Artifact = artifact
+		if err := queue.Write(ctx, event); err != nil {
+			return fmt.Errorf("failed to write output artifact event: %w", err)
+		}
 	}
 
 	// Final artifact update with lastChunk=true (if we have parts) and final completed status update (no message payload).

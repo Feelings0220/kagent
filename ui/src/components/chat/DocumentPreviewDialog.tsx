@@ -4,13 +4,15 @@ import ReactMarkdown from "react-markdown";
 import gfm from "remark-gfm";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-export type PreviewKind = "html" | "markdown" | "svg";
+export type PreviewKind = "html" | "markdown" | "svg" | "image";
 
 interface DocumentPreviewDialogProps {
   content: string;
   kind: PreviewKind;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** MIME type for kind "image" (content is base64-encoded). */
+  mimeType?: string;
 }
 
 const sanitizeHTML = (html: string) => {
@@ -45,14 +47,26 @@ const sanitizeHTML = (html: string) => {
   return temp.innerHTML;
 };
 
-const DocumentPreviewDialog = ({ content, kind, open, onOpenChange }: DocumentPreviewDialogProps) => {
-  const title = kind === "html" ? "HTML Preview" : kind === "svg" ? "SVG Preview" : "Markdown Preview";
+const DocumentPreviewDialog = ({ content, kind, open, onOpenChange, mimeType }: DocumentPreviewDialogProps) => {
+  const title =
+    kind === "html" ? "HTML Preview" : kind === "svg" ? "SVG Preview" : kind === "image" ? "Image Preview" : "Markdown Preview";
 
   const renderBody = () => {
     if (kind === "markdown") {
       return (
         <div className="prose prose-sm dark:prose-invert max-w-none h-[60vh] overflow-y-auto border rounded-md p-4">
           <ReactMarkdown remarkPlugins={[gfm]}>{content}</ReactMarkdown>
+        </div>
+      );
+    }
+
+    if (kind === "image") {
+      // content is base64; a data URI never executes scripts.
+      const dataUri = `data:${mimeType || "image/png"};base64,${content}`;
+      return (
+        <div className="flex h-[60vh] items-center justify-center overflow-auto border rounded-md p-4 bg-white">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={dataUri} alt="Image preview" className="max-w-full max-h-full" />
         </div>
       );
     }

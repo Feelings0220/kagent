@@ -71,6 +71,13 @@ jest.mock("@/components/chat/StreamingMessage", () => ({
   default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
+// ArtifactsPanel pulls in DocumentPreviewDialog → react-markdown (ESM-only),
+// which jest can't parse without extra transform config.
+jest.mock("@/components/chat/ArtifactsPanel", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
 const mockCheckSessionExists = checkSessionExists as jest.MockedFunction<typeof checkSessionExists>;
 const mockCreateSession = createSession as jest.MockedFunction<typeof createSession>;
 const mockGetSessionTasks = getSessionTasks as jest.MockedFunction<typeof getSessionTasks>;

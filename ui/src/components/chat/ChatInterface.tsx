@@ -17,6 +17,7 @@ import ChatMessage from "@/components/chat/ChatMessage";
 import ChatModelSwitcher from "@/components/chat/ChatModelSwitcher";
 import ChatToolsPanel from "@/components/chat/ChatToolsPanel";
 import AttachmentChip from "@/components/chat/AttachmentChip";
+import ArtifactsPanel from "@/components/chat/ArtifactsPanel";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -29,7 +30,7 @@ import { getUiRuntimeConfig } from "@/app/actions/config";
 import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, extractFileArtifactsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, FileArtifact, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatAgentDescription, useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
@@ -108,6 +109,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [sessionArtifacts, setSessionArtifacts] = useState<FileArtifact[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
@@ -176,6 +178,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setChatStatus,
     setSessionStats,
     pendingTurnStats: pendingTurnStatsRef,
+    onFileArtifact: (artifact) => {
+      setSessionArtifacts(prev => [...prev.filter(a => a.name !== artifact.name), artifact]);
+      toast.info(`Agent generated ${artifact.name}`);
+    },
     agentContext: {
       namespace: selectedNamespace,
       agentName: selectedAgentName
@@ -194,6 +200,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       // follow-scrolling so a new session opens pinned to its latest message.
       isNearBottomRef.current = true;
       setShowJumpToLatest(false);
+      setSessionArtifacts([]);
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -233,6 +240,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         else {
           const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
           setSessionStats(extractTokenStatsFromTasks(messagesResponse.data));
+          setSessionArtifacts(extractFileArtifactsFromTasks(messagesResponse.data));
 
           // Resolved approvals are already inline in extractedMessages (with
           // approved/rejected badges). Only pending approvals need appending.
@@ -604,6 +612,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       const latest = await getSessionTasks(currentSessionId);
       if (latest.data && latest.data.length > 0) {
         const extractedMessages = extractMessagesFromTasks(latest.data);
+        setSessionArtifacts(extractFileArtifactsFromTasks(latest.data));
         const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(latest.data);
         setStoredMessages(
           hasPendingApproval
@@ -1195,6 +1204,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           </Button>
         )}
       </div>
+
+      <ArtifactsPanel artifacts={sessionArtifacts} />
 
       <div className="w-full max-w-3xl mx-auto sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg px-3 py-2 border overflow-hidden transition-all duration-300 ease-in-out">
         {(chatStatus !== "ready" || sessionStats.total > 0) && (
