@@ -1090,6 +1090,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     });
   };
 
+  /** Recall a previously sent user message into the composer for editing. */
+  const handleEditMessage = (text: string) => {
+    setCurrentInputMessage(text);
+    textareaRef.current?.focus();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== "Enter") return;
     // Don't send while an IME composition is in progress (e.g. Chinese/Japanese
@@ -1163,6 +1169,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
+                    onEditMessage={handleEditMessage}
                     pendingDecisions={pendingDecisions}
                   />
                 })}
@@ -1177,6 +1184,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
+                    onEditMessage={handleEditMessage}
                     pendingDecisions={pendingDecisions}
                   />
                 })}

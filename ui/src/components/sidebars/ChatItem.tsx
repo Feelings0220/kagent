@@ -9,7 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
-import { MoreHorizontal, Trash2, Download, PauseCircle, Circle } from "lucide-react";
+import { MoreHorizontal, Trash2, Download, FileText, PauseCircle, Circle } from "lucide-react";
 import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -25,6 +25,8 @@ interface ChatItemProps {
   agentNamespace?: string;
   sessionName?: string;
   onDownload?: (sessionId: string) => Promise<void>;
+  /** Export the session as a readable Markdown transcript. */
+  onExportMarkdown?: (sessionId: string) => Promise<void>;
   activityAt?: string;
   /** When true, omit delete (e.g. read-only sessions). */
   hideDelete?: boolean;
@@ -32,7 +34,7 @@ interface ChatItemProps {
   sessionStatus?: SessionActorState;
 }
 
-const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, activityAt, hideDelete, sessionStatus }: ChatItemProps) => {
+const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, onExportMarkdown, activityAt, hideDelete, sessionStatus }: ChatItemProps) => {
   const title = sessionName || "Untitled";
 
   // Format timestamp based on how recent it is
@@ -99,9 +101,17 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
               }} className="p-0">
                 <Button variant={"ghost"} className="w-full justify-start px-2 py-1.5">
                   <Download className="mr-2 h-4 w-4" />
-                  <span>Download</span>
+                  <span>Download JSON</span>
                 </Button>
               </DropdownMenuItem>
+              {onExportMarkdown && (
+                <DropdownMenuItem onSelect={() => onExportMarkdown(sessionId)} className="p-0">
+                  <Button variant={"ghost"} className="w-full justify-start px-2 py-1.5">
+                    <FileText className="mr-2 h-4 w-4" />
+                    <span>Export Markdown</span>
+                  </Button>
+                </DropdownMenuItem>
+              )}
               {!hideDelete && (
               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
                 <AlertDialog>

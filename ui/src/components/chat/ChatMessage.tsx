@@ -1,6 +1,8 @@
 import { FilePart, Message, TextPart } from "@a2a-js/sdk";
+import { Pencil } from "lucide-react";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import AttachmentChip from "@/components/chat/AttachmentChip";
+import CopyButton from "@/components/CopyButton";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
@@ -25,9 +27,11 @@ interface ChatMessageProps {
   onReject?: (toolCallId: string, reason?: string) => void;
   onAskUserSubmit?: (answers: Array<{ answer: string[] }>) => void;
   pendingDecisions?: Record<string, ToolDecision>;
+  /** When set, user messages show an edit icon that recalls the text into the composer. */
+  onEditMessage?: (text: string) => void;
 }
 
-export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions }: ChatMessageProps) {
+export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions, onEditMessage }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -164,7 +168,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   const messageBorderColor = source === "user" ? "border-l-blue-500" : "border-l-violet-500";
 
-  return <div className={`flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
+  return <div className={`group/message flex items-center gap-2 text-sm border-l-2 py-2 px-4 ${messageBorderColor}`}>
     <div className="flex flex-col gap-1 w-full">
       {source !== "user" ? <div className="flex items-center gap-1">
         <KagentLogo className="w-4 h-4" />
@@ -181,6 +185,9 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
       {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
           {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
+          {content && (
+            <CopyButton content={String(content)} size={16} className="p-1 h-auto rounded-full" />
+          )}
           {messageId !== undefined && (
             <>
               <button
@@ -199,6 +206,18 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
               </button>
             </>
           )}
+        </div>
+      )}
+      {source === "user" && content && onEditMessage && (
+        <div className="flex justify-end items-center opacity-0 group-hover/message:opacity-100 transition-opacity">
+          <button
+            onClick={() => onEditMessage(String(content))}
+            className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Edit and resend"
+            title="Edit and resend"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
     </div>

@@ -8,9 +8,11 @@ import { deleteSession, getSessionTasks, createSession } from "@/app/actions/ses
 import { getAgentHarnessSessionStatus } from "@/app/actions/agentHarnessSession";
 import type { SessionActorState } from "@/components/sidebars/ChatItem";
 import { formatA2AClientError } from "@/lib/a2aErrors";
+import { sessionToMarkdown } from "@/lib/sessionExport";
 import type { SandboxChatMode } from "@/lib/sandboxAgentForm";
 import { Button } from "@/components/ui/button";
-import { PlusCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { PlusCircle, Search } from "lucide-react";
 import { toast } from "sonner";
 
 /** How often the sidebar refreshes harness session actor states. */
@@ -41,6 +43,7 @@ export default function GroupedChats({
 
   // Local state to manage sessions for immediate UI updates
   const [localSessions, setLocalSessions] = useState<Session[]>(sessions);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Per-session substrate actor states (harness sessions only).
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, SessionActorState>>({});
@@ -110,7 +113,12 @@ export default function GroupedChats({
       older: [],
     };
 
-    const sessionsWithActivity = localSessions.map(session => ({
+    const query = searchQuery.trim().toLowerCase();
+    const visibleSessions = query
+      ? localSessions.filter(session => (session.name || "").toLowerCase().includes(query))
+      : localSessions;
+
+    const sessionsWithActivity = visibleSessions.map(session => ({
       session,
       activityTimestamp: Date.parse(session.updated_at || session.created_at),
     }));
@@ -137,7 +145,7 @@ export default function GroupedChats({
       yesterday: sortChats(groups.yesterday),
       older: sortChats(groups.older),
     };
-  }, [localSessions]);
+  }, [localSessions, searchQuery]);
 
   const onDeleteClick = async (sessionId: string) => {
     try {
@@ -172,6 +180,31 @@ export default function GroupedChats({
       }
     );
   }
+
+  const onExportMarkdownClick = async (sessionId: string) => {
+    const session = localSessions.find(s => s.id === sessionId);
+    toast.promise(
+      getSessionTasks(String(sessionId)).then(response => {
+        const markdown = sessionToMarkdown(response.data ?? [], {
+          sessionName: session?.name || `session-${sessionId}`,
+          agentRef: `${agentNamespace}/${agentName}`,
+        });
+        const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${(session?.name || `session-${sessionId}`).replace(/[^\w.-]+/g, "_")}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+        return response;
+      }),
+      {
+        loading: "Exporting markdown...",
+        success: "Markdown exported",
+        error: "Failed to export markdown",
+      }
+    );
+  };
 
   const handleNewChat = async () => {
     // Substrate harness: actor-first ordering. Do NOT pre-create a DB session —
@@ -229,15 +262,33 @@ export default function GroupedChats({
       </div>
       )}
 
+      {localSessions.length > 0 && (
+        <div className="mb-2 px-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chats..."
+              className="h-8 pl-7 text-sm"
+              aria-label="Search chats"
+            />
+          </div>
+        </div>
+      )}
+
       {hasNoSessions || (localSessions.length === 0 && acpSessions.length === 0) ? (
         <EmptyState variant={hideNewChat ? "singleChat" : "default"} />
+      ) : searchQuery.trim() &&
+        groupedChats.today.length + groupedChats.yesterday.length + groupedChats.older.length === 0 ? (
+        <div className="px-4 py-3 text-sm text-muted-foreground">No chats match “{searchQuery.trim()}”.</div>
       ) : (
         <>
-          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />}
+          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} onExportMarkdownSession={(sessionId) => onExportMarkdownClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />}
           {groupedChats.yesterday.length > 0 && (
-            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />
+            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} onExportMarkdownSession={(sessionId) => onExportMarkdownClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />
           )}
-          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />}
+          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} onExportMarkdownSession={(sessionId) => onExportMarkdownClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />}
         </>
       )}
     </>
