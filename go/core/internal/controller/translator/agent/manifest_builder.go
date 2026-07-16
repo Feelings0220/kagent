@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
@@ -296,7 +297,9 @@ func buildPodRuntime(
 	volumeMounts := append([]corev1.VolumeMount{}, secretMounts...)
 	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
-	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
+	// Built-in bash executes commands in the runtime sandbox, so it needs the
+	// same isolation settings as code execution and skills.
+	needCodeExecIsolation := cfg != nil && (cfg.GetExecuteCode() || slices.Contains(cfg.BuiltinTools, "bash"))
 	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
 	if err != nil {
 		return nil, err

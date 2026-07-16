@@ -74,3 +74,40 @@ description: Demo skill.
 		}
 	}
 }
+
+func TestNewWorkspaceTools_FiltersAndCreatesDirectory(t *testing.T) {
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
+	workspaceDir := filepath.Join(t.TempDir(), "not-yet-created")
+
+	tools, err := NewWorkspaceTools(workspaceDir, []string{"bash", "read_file", "unknown_tool"})
+	if err != nil {
+		t.Fatalf("NewWorkspaceTools() error = %v", err)
+	}
+
+	if _, err := os.Stat(workspaceDir); err != nil {
+		t.Errorf("expected workspace directory to be created: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, tool := range tools {
+		got[tool.Name()] = true
+	}
+	if len(got) != 2 || !got["bash"] || !got["read_file"] {
+		t.Errorf("tools = %v, want exactly bash and read_file", got)
+	}
+	if got["skills"] {
+		t.Error("skills discovery tool must not be included in workspace tools")
+	}
+}
+
+func TestNewWorkspaceTools_EmptyInputs(t *testing.T) {
+	tools, err := NewWorkspaceTools("", []string{"bash"})
+	if err != nil || tools != nil {
+		t.Errorf("empty dir: tools = %v, err = %v; want nil, nil", tools, err)
+	}
+
+	tools, err = NewWorkspaceTools(t.TempDir(), nil)
+	if err != nil || tools != nil {
+		t.Errorf("no names: tools = %v, err = %v; want nil, nil", tools, err)
+	}
+}

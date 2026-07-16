@@ -238,12 +238,18 @@ export interface ResourceMetadata {
   resourceVersion?: string;
 }
 
-export type ToolProviderType = "McpServer" | "Agent"
+export type ToolProviderType = "McpServer" | "Agent" | "Builtin"
+
+/** Built-in workspace tools provided directly by the agent runtime. */
+export interface BuiltinTool {
+  names: string[];
+}
 
 export interface Tool {
   type: ToolProviderType;
   mcpServer?: McpServerTool;
   agent?: TypedLocalReference;
+  builtin?: BuiltinTool;
 }
 
 export interface TypedLocalReference {

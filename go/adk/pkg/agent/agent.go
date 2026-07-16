@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -175,6 +176,34 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 		}
 		localTools = append(localTools, skillsTools...)
 		log.Info("Wired local skills tools", "skillsDirectory", skillsDirectory, "toolCount", len(skillsTools))
+	}
+
+	// Built-in workspace tools requested via spec.declarative.tools[].builtin.
+	// Skills (when configured) already provide these; only mount the ones not
+	// yet present so the two sources don't produce duplicate tool names.
+	if len(agentConfig.BuiltinTools) > 0 {
+		existing := make(map[string]bool, len(localTools))
+		for _, t := range localTools {
+			existing[t.Name()] = true
+		}
+		var missing []string
+		for _, name := range agentConfig.BuiltinTools {
+			if !existing[name] {
+				missing = append(missing, name)
+			}
+		}
+		if len(missing) > 0 {
+			workspaceDirectory := skillsDirectory
+			if workspaceDirectory == "" {
+				workspaceDirectory = filepath.Join(os.TempDir(), "kagent-workspace")
+			}
+			builtinTools, err := tools.NewWorkspaceTools(workspaceDirectory, missing)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create builtin workspace tools: %w", err)
+			}
+			localTools = append(localTools, builtinTools...)
+			log.Info("Wired builtin workspace tools", "workspaceDirectory", workspaceDirectory, "tools", missing)
+		}
 	}
 
 	askUserTool, err := tools.NewAskUserTool()

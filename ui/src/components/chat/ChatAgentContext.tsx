@@ -3,10 +3,21 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { AgentType } from "@/types";
 
+export type ChatAgentModelInfo = {
+  /** Model name currently used by the agent (e.g. "gpt-4o"). */
+  model: string;
+  /** Model provider (e.g. "OpenAI"). */
+  modelProvider: string;
+  /** Ref ("namespace/name") of the ModelConfig backing the agent. */
+  modelConfigRef: string;
+};
+
 type ChatAgentRuntimeContextValue = {
   agentType: AgentType;
   runInSandbox: boolean;
   substrateSandbox: boolean;
+  modelInfo?: ChatAgentModelInfo;
+  agentDescription?: string;
 };
 
 const ChatAgentRuntimeContext = createContext<ChatAgentRuntimeContextValue | undefined>(undefined);
@@ -15,18 +26,27 @@ export function ChatAgentProvider({
   agentType,
   runInSandbox = false,
   substrateSandbox = false,
+  modelInfo,
+  agentDescription,
   children,
 }: {
   agentType: AgentType;
   runInSandbox?: boolean;
   substrateSandbox?: boolean;
+  modelInfo?: ChatAgentModelInfo;
+  agentDescription?: string;
   children: ReactNode;
 }) {
   return (
-    <ChatAgentRuntimeContext.Provider value={{ agentType, runInSandbox, substrateSandbox }}>
+    <ChatAgentRuntimeContext.Provider value={{ agentType, runInSandbox, substrateSandbox, modelInfo, agentDescription }}>
       {children}
     </ChatAgentRuntimeContext.Provider>
   );
+}
+
+/** Description of the current chat agent (spec.description). */
+export function useChatAgentDescription(): string | undefined {
+  return useContext(ChatAgentRuntimeContext)?.agentDescription;
 }
 
 /** Agent type for the current chat route (from layout). Undefined outside provider. */
@@ -42,4 +62,9 @@ export function useChatRunInSandbox(): boolean {
 /** Agent Substrate sandbox (multi-session; session actors resume on send). */
 export function useChatSubstrateSandbox(): boolean {
   return useContext(ChatAgentRuntimeContext)?.substrateSandbox ?? false;
+}
+
+/** Model info (model, provider, ModelConfig ref) for the current chat agent. */
+export function useChatModelInfo(): ChatAgentModelInfo | undefined {
+  return useContext(ChatAgentRuntimeContext)?.modelInfo;
 }

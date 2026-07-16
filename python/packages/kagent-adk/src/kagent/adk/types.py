@@ -378,6 +378,9 @@ class AgentConfig(BaseModel):
     http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
+    # Built-in workspace tools (bash, read_file, write_file, edit_file) to
+    # mount without requiring skills. Mirrors the Go AgentConfig field.
+    builtin_tools: list[str] | None = None
     execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration

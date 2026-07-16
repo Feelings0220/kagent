@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, ArrowDown, FileText, Paperclip, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -14,6 +14,8 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
+import ChatModelSwitcher from "@/components/chat/ChatModelSwitcher";
+import ChatToolsPanel from "@/components/chat/ChatToolsPanel";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -29,15 +31,47 @@ import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
-import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
+import { useChatAgentDescription, useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
-import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
+import { Message, DataPart, FilePart, Task, TaskState } from "@a2a-js/sdk";
 
 // Task states where the agent is actively processing — resubscribe to live stream.
 const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
 // Task states that mean the session is busy (used by the cross-tab send guard).
 const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
+
+// Attachment limits: individual file size and count per message.
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 5;
+
+interface PendingAttachment {
+  name: string;
+  mimeType: string;
+  /** base64-encoded content (without the data: URI prefix). */
+  bytes: string;
+  size: number;
+}
+
+const readFileAsBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",", 2)[1] ?? "");
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+const attachmentToFilePart = (attachment: PendingAttachment): FilePart => ({
+  kind: "file",
+  file: {
+    bytes: attachment.bytes,
+    mimeType: attachment.mimeType || "application/octet-stream",
+    name: attachment.name,
+  },
+});
 
 
 interface ChatInterfaceProps {
@@ -50,9 +84,18 @@ interface ChatInterfaceProps {
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
   const substrateSandbox = useChatSubstrateSandbox();
+  const agentDescription = useChatAgentDescription();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Tracks whether the user is scrolled near the bottom of the message list.
+  // Auto-scroll only follows new content while this is true, so reading
+  // history isn't interrupted by streaming updates.
+  const isNearBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
@@ -214,20 +257,97 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
 
+  const getScrollViewport = () =>
+    containerRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+
+  const scrollToBottom = () => {
+    const viewport = getScrollViewport();
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+    isNearBottomRef.current = true;
+    setShowJumpToLatest(false);
+  };
+
+  // Track scroll position so auto-scroll only engages when the user is
+  // already at (or near) the bottom of the conversation.
   useEffect(() => {
-    if (containerRef.current) {
-      const viewport = containerRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
-      if (viewport) {
-        viewport.scrollTop = viewport.scrollHeight;
-      }
+    const viewport = getScrollViewport();
+    if (!viewport) return;
+    const onScroll = () => {
+      const nearBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80;
+      isNearBottomRef.current = nearBottom;
+      setShowJumpToLatest(!nearBottom);
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!isNearBottomRef.current) return;
+    const viewport = getScrollViewport();
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
     }
   }, [storedMessages, streamingMessages, streamingContent]);
 
+  // Auto-grow the composer textarea with its content, capped so long drafts
+  // scroll internally instead of pushing the messages out of view.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [currentInputMessage]);
 
+  /** Validate and queue files as pending attachments for the next message. */
+  const addAttachments = async (files: File[]) => {
+    if (files.length === 0) return;
+    const accepted: PendingAttachment[] = [];
+    for (const file of files) {
+      if (pendingAttachments.length + accepted.length >= MAX_ATTACHMENTS) {
+        toast.error(`At most ${MAX_ATTACHMENTS} files per message`);
+        break;
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        toast.error(`${file.name} exceeds the ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)}MB limit`);
+        continue;
+      }
+      try {
+        const bytes = await readFileAsBase64(file);
+        accepted.push({ name: file.name, mimeType: file.type, bytes, size: file.size });
+      } catch (error) {
+        console.error("Failed to read file:", error);
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (accepted.length > 0) {
+      setPendingAttachments(prev => [...prev, ...accepted]);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    addAttachments(Array.from(e.target.files ?? []));
+    // Reset so selecting the same file again re-triggers the event.
+    e.target.value = "";
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length > 0) {
+      e.preventDefault();
+      addAttachments(files);
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setPendingAttachments(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
+    const hasContent = currentInputMessage.trim() || pendingAttachments.length > 0;
+    if (!hasContent || !selectedAgentName || !selectedNamespace) {
       return;
     }
 
@@ -237,6 +357,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     const userMessageText = currentInputMessage;
+    const attachments = pendingAttachments;
+    const restoreDraft = () => {
+      setCurrentInputMessage(userMessageText);
+      setPendingAttachments(attachments);
+    };
 
     // Cross-tab guard: fetch the latest session state before mutating anything.
     // Two cases: (1) another tab is still streaming — reconnect instead of sending;
@@ -259,7 +384,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     setCurrentInputMessage("");
+    setPendingAttachments([]);
     setChatStatus("thinking");
+    // Sending a message always re-engages follow-scrolling.
+    scrollToBottom();
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
     setStreamingContent(""); // Reset streaming content for new message
@@ -275,10 +403,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       kind: "message",
       messageId,
       role: "user",
-      parts: [{
-        kind: "text",
-        text: userMessageText
-      }],
+      parts: [
+        {
+          kind: "text",
+          text: userMessageText
+        },
+        ...attachments.map(attachmentToFilePart),
+      ],
       contextId: guardSessionId,
       metadata: {
         timestamp: Date.now()
@@ -315,7 +446,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           if (newSessionResponse.error || !newSessionResponse.data) {
             toast.error("Failed to create session");
             setChatStatus("error");
-            setCurrentInputMessage(userMessageText);
+            restoreDraft();
             isCreatingSessionRef.current = false;
             return;
           }
@@ -341,7 +472,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           console.error("Error creating session:", error);
           toast.error("Error creating session");
           setChatStatus("error");
-          setCurrentInputMessage(userMessageText);
+          restoreDraft();
           isCreatingSessionRef.current = false;
           return;
         }
@@ -383,17 +514,20 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         messageId,
         contextId: currentSessionId,
       });
+      if (attachments.length > 0) {
+        a2aMessage.parts.push(...attachments.map(attachmentToFilePart));
+      }
 
       await streamA2AMessage(a2aMessage, {
         errorLabel: "Streaming failed",
-        onError: () => setCurrentInputMessage(userMessageText),
+        onError: restoreDraft,
         sessionIdForWait: currentSessionId,
       });
     } catch (error) {
       console.error("Error sending message or creating session:", error);
       toast.error("Error sending message or creating session");
       setChatStatus("error");
-      setCurrentInputMessage(userMessageText);
+      restoreDraft();
     }
   };
 
@@ -925,11 +1059,15 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
-        handleSendMessage(e);
-      }
+    if (e.key !== "Enter") return;
+    // Don't send while an IME composition is in progress (e.g. Chinese/Japanese
+    // input) — Enter is confirming the composition, not submitting.
+    if (e.nativeEvent.isComposing) return;
+    // Shift+Enter inserts a newline.
+    if (e.shiftKey) return;
+    e.preventDefault();
+    if ((currentInputMessage.trim() || pendingAttachments.length > 0) && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+      handleSendMessage(e);
     }
   };
 
@@ -950,8 +1088,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   return (
     <div className="flex h-full w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
-        <ScrollArea ref={containerRef} className="w-full h-full py-12">
-          <div className="flex flex-col space-y-5 px-4">
+        <ScrollArea ref={containerRef} className="w-full h-full py-6">
+          <div className="mx-auto w-full max-w-3xl flex flex-col space-y-4 px-4">
             {/* Never show loading for first message/new session */}
             {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
               <div
@@ -967,11 +1105,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               </div>
             ) : storedMessages.length === 0 && streamingMessages.length === 0 && !isStreaming ? (
               <div className="flex items-center justify-center h-full min-h-[50vh]">
-                <div className="max-w-md rounded-lg border bg-card p-6 text-center shadow-sm">
-                  <h2 className="mb-2 text-lg font-medium">Start a conversation</h2>
-                  <p className="text-muted-foreground">
-                    To begin chatting with the agent, type your message in the input box below.
-                  </p>
+                <div className="max-w-lg text-center px-6">
+                  <h2 className="mb-2 text-xl font-semibold">{selectedAgentName}</h2>
+                  {agentDescription && (
+                    <p className="mb-6 text-sm text-muted-foreground">{agentDescription}</p>
+                  )}
+                  <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span><kbd className="rounded border px-1">Enter</kbd> to send</span>
+                    <span><kbd className="rounded border px-1">Shift+Enter</kbd> for a new line</span>
+                    <span className="inline-flex items-center gap-1"><Paperclip className="h-3 w-3" aria-hidden /> attach files</span>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1013,32 +1156,96 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             )}
           </div>
         </ScrollArea>
+
+        {showJumpToLatest && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={scrollToBottom}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md border"
+            aria-label="Jump to latest messages"
+          >
+            <ArrowDown className="h-4 w-4 mr-1" aria-hidden /> Latest
+          </Button>
+        )}
       </div>
 
-      <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
-        <div className="flex items-center justify-between mb-4">
-          <StatusDisplay chatStatus={chatStatus} />
-          {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
-        </div>
+      <div className="w-full max-w-3xl mx-auto sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg px-3 py-2 border overflow-hidden transition-all duration-300 ease-in-out">
+        {(chatStatus !== "ready" || sessionStats.total > 0) && (
+          <div className="flex items-center justify-between mb-1 min-h-5">
+            {chatStatus !== "ready" ? <StatusDisplay chatStatus={chatStatus} /> : <span />}
+            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
+          </div>
+        )}
 
-        <form onSubmit={handleSendMessage}>
+        {pendingAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pb-2">
+            {pendingAttachments.map((attachment, index) => (
+              <span
+                key={`${attachment.name}-${index}`}
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs"
+              >
+                <FileText className="h-3 w-3 text-muted-foreground" aria-hidden />
+                <span className="max-w-40 truncate">{attachment.name}</span>
+                <span className="text-muted-foreground">{Math.max(1, Math.round(attachment.size / 1024))}KB</span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(index)}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
+                  aria-label={`Remove ${attachment.name}`}
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+          <div className="flex items-center pb-0.5">
+            <ChatToolsPanel agentName={selectedAgentName} namespace={selectedNamespace} />
+            <ChatModelSwitcher agentName={selectedAgentName} namespace={selectedNamespace} />
+          </div>
           <Textarea
+            ref={textareaRef}
+            rows={1}
             value={currentInputMessage}
             onChange={(e) => setCurrentInputMessage(e.target.value)}
             placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
-            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+            onPaste={handlePaste}
+            className={`flex-1 min-h-[36px] max-h-[200px] overflow-y-auto border-0 shadow-none p-1 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
             disabled={chatStatus !== "ready"}
           />
 
-          <div className="flex items-center justify-end gap-2 mt-4">
+          <div className="flex items-center gap-1.5 pb-0.5">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileInputChange}
+              aria-hidden
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={chatStatus !== "ready"}
+              aria-label="Attach files"
+              title="Attach files (saved to the session workspace uploads/ folder)"
+            >
+              <Paperclip className="h-4 w-4" aria-hidden />
+            </Button>
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      variant={isListening ? "destructive" : "default"}
+                      variant={isListening ? "destructive" : "ghost"}
                       size="icon"
                       onClick={isListening ? stopListening : startListening}
                       disabled={chatStatus !== "ready"}
@@ -1062,13 +1269,24 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                 </Tooltip>
               </TooltipProvider>
             )}
-            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
-              Send
-              <ArrowBigUp className="h-4 w-4 ml-2" />
-            </Button>
-            {chatStatus !== "ready" && chatStatus !== "error" && (
-              <Button type="button" variant="outline" onClick={handleCancel}>
-                <X className="h-4 w-4 mr-2" /> Cancel
+            {chatStatus !== "ready" && chatStatus !== "error" ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={handleCancel}
+                aria-label="Cancel"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="icon"
+                disabled={(!currentInputMessage.trim() && pendingAttachments.length === 0) || chatStatus !== "ready"}
+                aria-label="Send message"
+              >
+                <ArrowBigUp className="h-4 w-4" aria-hidden />
               </Button>
             )}
           </div>

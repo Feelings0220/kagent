@@ -498,17 +498,21 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                 `json:"model"`
-	Description   string                `json:"description"`
-	Instruction   string                `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-	SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-	ExecuteCode   *bool                 `json:"execute_code,omitempty"`
-	Stream        *bool                 `json:"stream,omitempty"`
-	Memory        *MemoryConfig         `json:"memory,omitempty"`
-	Network       *NetworkConfig        `json:"network,omitempty"`
-	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Model        Model                 `json:"model"`
+	Description  string                `json:"description"`
+	Instruction  string                `json:"instruction"`
+	HttpTools    []HttpMcpServerConfig `json:"http_tools,omitempty"`
+	SseTools     []SseMcpServerConfig  `json:"sse_tools,omitempty"`
+	RemoteAgents []RemoteAgentConfig   `json:"remote_agents,omitempty"`
+	// BuiltinTools lists built-in workspace tools (bash, read_file,
+	// write_file, edit_file) to mount in the agent runtime. They operate on
+	// the per-session workspace and do not require skills to be configured.
+	BuiltinTools  []string            `json:"builtin_tools,omitempty"`
+	ExecuteCode   *bool               `json:"execute_code,omitempty"`
+	Stream        *bool               `json:"stream,omitempty"`
+	Memory        *MemoryConfig       `json:"memory,omitempty"`
+	Network       *NetworkConfig      `json:"network,omitempty"`
+	ContextConfig *AgentContextConfig `json:"context_config,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set

@@ -13172,6 +13172,30 @@ spec:
                           required:
                           - name
                           type: object
+                        builtin:
+                          description: |-
+                            Builtin enables built-in workspace tools (bash, read_file, write_file,
+                            edit_file) provided directly by the agent runtime.
+                          properties:
+                            names:
+                              description: Names of the built-in tools to enable.
+                              items:
+                                description: |-
+                                  BuiltinToolName identifies a built-in workspace tool provided by the agent
+                                  runtime. These tools operate on the per-session workspace directory
+                                  (uploads/, outputs/) and, for bash, execute inside the runtime sandbox.
+                                enum:
+                                - bash
+                                - read_file
+                                - write_file
+                                - edit_file
+                                type: string
+                              maxItems: 4
+                              minItems: 1
+                              type: array
+                          required:
+                          - names
+                          type: object
                         headersFrom:
                           description: |-
                             HeadersFrom specifies a list of configuration values to be added as
@@ -13275,6 +13299,7 @@ spec:
                           enum:
                           - McpServer
                           - Agent
+                          - Builtin
                           type: string
                       type: object
                       x-kubernetes-validations:
@@ -13286,6 +13311,10 @@ spec:
                         rule: '!(has(self.agent) && self.type != ''Agent'')'
                       - message: type.agent must be specified for Agent filter.type
                         rule: '!(!has(self.agent) && self.type == ''Agent'')'
+                      - message: type.builtin must be nil if the type is not Builtin
+                        rule: '!(has(self.builtin) && self.type != ''Builtin'')'
+                      - message: type.builtin must be specified for Builtin type
+                        rule: '!(!has(self.builtin) && self.type == ''Builtin'')'
                     maxItems: 20
                     type: array
                 type: object

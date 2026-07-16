@@ -183,6 +183,10 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		inboundMessage = resumeMessage
 	}
 
+	// 5b. Persist uploaded files into the session workspace (uploads/) so the
+	// bash/file tools can access them; see materializeInboundFiles for details.
+	inboundMessage = materializeInboundFiles(inboundMessage, sessionID, e.skillsDirectory, e.logger)
+
 	// 6. Convert inbound message to *genai.Content using kagent a2aPartConverter.
 	content, err := messageToGenAIContent(ctx, inboundMessage)
 	if err != nil {
