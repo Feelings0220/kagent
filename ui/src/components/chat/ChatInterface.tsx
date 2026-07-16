@@ -73,6 +73,18 @@ const attachmentToFilePart = (attachment: PendingAttachment): FilePart => ({
   },
 });
 
+// Display-only file part: the chat transcript only renders the file name, so
+// the copy kept in React state omits the base64 bytes (which can be tens of
+// MB) to avoid retaining them for the session lifetime.
+const attachmentToDisplayPart = (attachment: PendingAttachment): FilePart => ({
+  kind: "file",
+  file: {
+    bytes: "",
+    mimeType: attachment.mimeType || "application/octet-stream",
+    name: attachment.name,
+  },
+});
+
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -177,6 +189,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       pendingDecisionsRef.current = {};
       pendingRejectionReasonsRef.current = {};
       pendingTurnStatsRef.current = undefined;
+      // The ChatInterface instance is reused across session switches; re-arm
+      // follow-scrolling so a new session opens pinned to its latest message.
+      isNearBottomRef.current = true;
+      setShowJumpToLatest(false);
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -403,12 +419,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       kind: "message",
       messageId,
       role: "user",
+      // Only include a text part when there is text — some providers reject
+      // empty text content blocks (attachment-only sends).
       parts: [
-        {
-          kind: "text",
-          text: userMessageText
-        },
-        ...attachments.map(attachmentToFilePart),
+        ...(userMessageText ? [{ kind: "text" as const, text: userMessageText }] : []),
+        ...attachments.map(attachmentToDisplayPart),
       ],
       contextId: guardSessionId,
       metadata: {
@@ -515,6 +530,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         contextId: currentSessionId,
       });
       if (attachments.length > 0) {
+        // Drop an empty text part so attachment-only sends don't ship an
+        // empty text content block (rejected by some providers).
+        if (!userMessageText) {
+          a2aMessage.parts = a2aMessage.parts.filter(
+            part => part.kind !== "text" || (part as { text: string }).text !== "",
+          );
+        }
         a2aMessage.parts.push(...attachments.map(attachmentToFilePart));
       }
 
@@ -1061,8 +1083,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== "Enter") return;
     // Don't send while an IME composition is in progress (e.g. Chinese/Japanese
-    // input) — Enter is confirming the composition, not submitting.
-    if (e.nativeEvent.isComposing) return;
+    // input) — Enter is confirming the composition, not submitting. keyCode 229
+    // is the legacy signal browsers (notably Safari) emit for the composition
+    // commit keydown, where isComposing has already flipped back to false.
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     // Shift+Enter inserts a newline.
     if (e.shiftKey) return;
     e.preventDefault();

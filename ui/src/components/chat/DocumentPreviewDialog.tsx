@@ -28,7 +28,15 @@ const sanitizeHTML = (html: string) => {
     const attributes = element.attributes;
     for (let j = attributes.length - 1; j >= 0; j--) {
       const attr = attributes[j];
-      if (attr.name.startsWith("on") || attr.name === "href" || attr.name === "src") {
+      // Strip event handlers, navigation, and remote-loading attributes.
+      // `style` is removed too: CSS url() in an allow-same-origin iframe can
+      // beacon to remote hosts and spoof the preview chrome.
+      if (
+        attr.name.startsWith("on") ||
+        attr.name === "href" ||
+        attr.name === "src" ||
+        attr.name === "style"
+      ) {
         element.removeAttribute(attr.name);
       }
     }

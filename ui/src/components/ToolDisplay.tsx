@@ -91,25 +91,29 @@ const CompactToolRow = ({ call, result, status, isError, subagentName, tokenStat
 
   return (
     <div className={`w-full rounded-md border bg-card/50 text-sm ${isError ? "border-red-300 dark:border-red-800" : ""}`}>
-      <button
-        type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50 rounded-md"
-        aria-expanded={isExpanded}
-      >
-        {statusIcon(status, !!isError)}
-        <span className="font-medium text-xs shrink-0">{call.name}</span>
-        {subagentName && (
-          <span className="text-xs text-muted-foreground shrink-0">
-            via {convertToUserFriendlyName(subagentName)}
-          </span>
-        )}
-        <span className="flex-1 truncate text-xs text-muted-foreground font-mono">{argsSummary}</span>
-        {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
-        {isExpanded
-          ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />
-          : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />}
-      </button>
+      {/* TokenStatsTooltip renders its own button, so it must live outside the
+          row's expand/collapse button to avoid nested <button> elements. */}
+      <div className="flex w-full items-center gap-2 rounded-md hover:bg-muted/50">
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex flex-1 min-w-0 items-center gap-2 px-3 py-1.5 text-left"
+          aria-expanded={isExpanded}
+        >
+          {statusIcon(status, !!isError)}
+          <span className="font-medium text-xs shrink-0">{call.name}</span>
+          {subagentName && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              via {convertToUserFriendlyName(subagentName)}
+            </span>
+          )}
+          <span className="flex-1 truncate text-xs text-muted-foreground font-mono">{argsSummary}</span>
+          {isExpanded
+            ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />
+            : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />}
+        </button>
+        {tokenStats && <span className="pr-3 shrink-0"><TokenStatsTooltip stats={tokenStats} /></span>}
+      </div>
 
       {isExpanded && (
         <div className="border-t px-3 py-2 space-y-3">
