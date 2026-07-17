@@ -42,6 +42,22 @@
 
 | 批 | 内容 | 性质 |
 |----|------|------|
-| polish-1 | #4 滚动条、#5 token 单位、#6 MVP、#2 顶部留白 | 纯前端小改，半天 |
-| polish-2 | #1/#3 双侧栏拖拽调宽（共享 Resizable 组件 + localStorage） | 前端中等，1-2 天 |
+| polish-1 | #4 滚动条、#5 token 单位、#6 MVP、#2 顶部留白 | ✅ 已实现 |
+| polish-2 | #1/#3 双侧栏拖拽调宽（共享 Resizable 组件 + localStorage） | ✅ 已实现 |
 | polish-3 | #6 正解（CRD 字段 + 表单 + API） | 前后端，随下个 CRD 批次 |
+
+
+## 实现记录（claude/kagent-ui-polish）
+
+- #4：`ui/scroll-area.tsx` Radix Root 改 `type="scroll"`（600ms 淡出），scrollbar 收窄 6px、透明轨道、opacity 过渡——全局生效；
+- #5：`lib/tokenUtils.ts` `formatTokens`（k/M，一位小数去尾 0），Usage 行与消息 tooltip 均改用，title/tooltip 保留精确值；
+- #6 MVP：`getModelContextWindow` 前缀映射表（OpenAI/Anthropic/Gemini/Llama 等），
+  composer 状态行显示 `ctx 12.3k/200k` + 进度条（>80% 琥珀、>95% 红），
+  当前上下文取最近一条带 tokenStats 消息的 prompt 值（最接近真实 context 大小）；未知模型自动隐藏；
+- #2：聊天滚动区 `py-6` → `pt-2 pb-6`；
+- #1/#3：`Sidebar` 组件新增 `width` prop（设在最外层，布局占位与固定面板同步，拖拽时禁用宽度过渡），
+  `useSidebarWidth` hook（200–480px 钳制 + localStorage 持久化 + 双击复原），
+  `SidebarResizeHandle` 拖拽把手（pointer capture），左右侧栏各自独立记忆宽度；
+- 测试：tokenUtils 11 个单测；全套 282 个 jest 通过；tsc/eslint/生产构建全绿。
+
+剩余：polish-3（ModelConfig.contextWindow CRD 字段，随下个 CRD 批次做）。
