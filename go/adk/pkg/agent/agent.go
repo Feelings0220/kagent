@@ -106,6 +106,15 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			approvalSet[name] = true
 		}
 	}
+	// Destructive builtin k8s tools are always HITL-gated, independent of
+	// configuration. Session-level "always allow" keeps repeat calls cheap.
+	for _, builtinName := range agentConfig.BuiltinTools {
+		for _, writeName := range tools.K8sWriteToolNames {
+			if builtinName == writeName {
+				approvalSet[builtinName] = true
+			}
+		}
+	}
 
 	// Build BeforeToolCallbacks. Approval gating runs first.
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
@@ -186,9 +195,14 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 		for _, t := range localTools {
 			existing[t.Name()] = true
 		}
-		var missing []string
+		var missing, missingK8s []string
 		for _, name := range agentConfig.BuiltinTools {
-			if !existing[name] {
+			if existing[name] {
+				continue
+			}
+			if tools.IsK8sToolName(name) {
+				missingK8s = append(missingK8s, name)
+			} else {
 				missing = append(missing, name)
 			}
 		}
@@ -203,6 +217,21 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 			}
 			localTools = append(localTools, builtinTools...)
 			log.Info("Wired builtin workspace tools", "workspaceDirectory", workspaceDirectory, "tools", missing)
+		}
+		if len(missingK8s) > 0 {
+			// The k8s tools proxy through the controller; without KAGENT_URL
+			// there is nothing to call, so they are skipped with a log line.
+			kagentURL := strings.TrimSpace(os.Getenv("KAGENT_URL"))
+			k8sTools, err := tools.NewK8sTools(kagentURL, missingK8s, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create builtin k8s tools: %w", err)
+			}
+			if len(k8sTools) == 0 {
+				log.Info("Skipping builtin k8s tools: KAGENT_URL is not set", "tools", missingK8s)
+			} else {
+				localTools = append(localTools, k8sTools...)
+				log.Info("Wired builtin k8s tools", "kagentURL", kagentURL, "tools", missingK8s)
+			}
 		}
 	}
 

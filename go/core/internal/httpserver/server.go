@@ -44,6 +44,7 @@ const (
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
 	APIPathClusterResources     = "/api/cluster/resources"
+	APIPathClusterQuery         = "/api/cluster/query"
 	APIPathContext              = "/api/context"
 	APIPathPromptTemplates      = "/api/prompttemplates"
 	APIPathA2A                  = "/api/a2a"
@@ -80,6 +81,9 @@ type ServerConfig struct {
 	MCPEgressPlaintext           bool
 	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 	AgentHarnessSessionActor     *substrate.AgentHarnessSessionActorBackend
+	// ClusterAccess provides cache-bypassing cluster reads for the cluster
+	// query endpoints (may be nil in tests).
+	ClusterAccess *handlers.ClusterAccess
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -112,6 +116,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.MCPEgressPlaintext,
 			config.SubstrateSandboxActorBackend,
 			config.AgentHarnessSessionActor,
+			config.ClusterAccess,
 		),
 		authenticator: config.Authenticator,
 	}, nil
@@ -303,6 +308,19 @@ func (s *HTTPServer) setupRoutes() {
 	// Cluster resource context (chat @-mention)
 	s.router.HandleFunc(APIPathClusterResources, adaptHandler(s.handlers.Resources.HandleListResources)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathClusterResources+"/context", adaptHandler(s.handlers.Resources.HandleGetResourceContext)).Methods(http.MethodGet)
+
+	// Cluster query API (agent k8s_* builtin tools)
+	s.router.HandleFunc(APIPathClusterQuery+"/kinds", adaptHandler(s.handlers.ClusterQuery.HandleListKinds)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathClusterQuery+"/list", adaptHandler(s.handlers.ClusterQuery.HandleQueryList)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathClusterQuery+"/resource", adaptHandler(s.handlers.ClusterQuery.HandleQueryResource)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathClusterQuery+"/logs", adaptHandler(s.handlers.ClusterQuery.HandleQueryLogs)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathClusterQuery+"/events", adaptHandler(s.handlers.ClusterQuery.HandleQueryEvents)).Methods(http.MethodGet)
+
+	// Destructive cluster tools (opt-in via clusterTools.write.enabled)
+	s.router.HandleFunc("/api/cluster/apply", adaptHandler(s.handlers.ClusterQuery.HandleApply)).Methods(http.MethodPost)
+	s.router.HandleFunc("/api/cluster/delete", adaptHandler(s.handlers.ClusterQuery.HandleDelete)).Methods(http.MethodPost)
+	s.router.HandleFunc("/api/cluster/scale", adaptHandler(s.handlers.ClusterQuery.HandleScale)).Methods(http.MethodPost)
+	s.router.HandleFunc("/api/cluster/rollout-restart", adaptHandler(s.handlers.ClusterQuery.HandleRolloutRestart)).Methods(http.MethodPost)
 
 	// Context providers (chat @-mention): discovery + Jenkins
 	s.router.HandleFunc(APIPathContext+"/providers", adaptHandler(s.handlers.Jenkins.HandleListProviders)).Methods(http.MethodGet)

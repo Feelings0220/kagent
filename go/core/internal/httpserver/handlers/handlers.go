@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/database"
@@ -10,6 +12,23 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
+
+// ClusterAccess bundles cache-bypassing cluster access for the cluster
+// query/tool endpoints. The uncached client reads straight from the API
+// server, so results are not limited by the manager cache's namespace
+// scoping and arbitrary kinds don't inflate the informer cache.
+type ClusterAccess struct {
+	// Client is an uncached controller-runtime client.
+	Client client.Client
+	// Clientset serves subresources the generic client can't (pods/log).
+	Clientset kubernetes.Interface
+	// RESTMapper resolves user-supplied kind/resource strings to GVKs.
+	RESTMapper meta.RESTMapper
+	// WriteEnabled gates the destructive cluster endpoints (apply, delete,
+	// scale, rollout-restart). The controller's own RBAC is broad, so the
+	// gate is an explicit deployment opt-in rather than an RBAC side effect.
+	WriteEnabled bool
+}
 
 // Handlers holds all the HTTP handler components
 type Handlers struct {
@@ -32,6 +51,7 @@ type Handlers struct {
 	Feedback            *FeedbackHandler
 	Namespaces          *NamespacesHandler
 	Resources           *ResourcesHandler
+	ClusterQuery        *ClusterQueryHandler
 	Jenkins             *JenkinsHandler
 	PromptTemplates     *PromptTemplatesHandler
 	Tasks               *TasksHandler
@@ -51,6 +71,19 @@ type Base struct {
 	WatchedNamespaces  []string
 	SandboxBackend     sandboxbackend.Backend
 	MCPEgressPlaintext bool
+	// Cluster provides cache-bypassing cluster access; nil in tests that
+	// don't exercise the cluster query endpoints.
+	Cluster *ClusterAccess
+}
+
+// clusterReader returns the best client for cluster-wide reads: the uncached
+// cluster-access client when configured, otherwise the (possibly cache-scoped)
+// manager client.
+func (b *Base) clusterReader() client.Client {
+	if b.Cluster != nil && b.Cluster.Client != nil {
+		return b.Cluster.Client
+	}
+	return b.KubeClient
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
@@ -68,6 +101,7 @@ func NewHandlers(
 	mcpEgressPlaintext bool,
 	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
 	agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend,
+	clusterAccess *ClusterAccess,
 ) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
@@ -78,6 +112,7 @@ func NewHandlers(
 		WatchedNamespaces:  watchedNamespaces,
 		SandboxBackend:     sandboxBackend,
 		MCPEgressPlaintext: mcpEgressPlaintext,
+		Cluster:            clusterAccess,
 	}
 
 	return &Handlers{
@@ -97,6 +132,7 @@ func NewHandlers(
 		Feedback:                 NewFeedbackHandler(base),
 		Namespaces:               NewNamespacesHandler(base),
 		Resources:                NewResourcesHandler(base),
+		ClusterQuery:             NewClusterQueryHandler(base),
 		Jenkins:                  NewJenkinsHandler(base),
 		PromptTemplates:          NewPromptTemplatesHandler(base),
 		Tasks:                    NewTasksHandler(base),

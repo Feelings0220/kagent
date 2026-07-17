@@ -476,10 +476,15 @@ const (
 	ToolProviderType_Builtin   ToolProviderType = "Builtin"
 )
 
-// BuiltinToolName identifies a built-in workspace tool provided by the agent
-// runtime. These tools operate on the per-session workspace directory
-// (uploads/, outputs/) and, for bash, execute inside the runtime sandbox.
-// +kubebuilder:validation:Enum=bash;read_file;write_file;edit_file
+// BuiltinToolName identifies a built-in tool provided by the agent runtime.
+// Workspace tools (bash, read_file, write_file, edit_file) operate on the
+// per-session workspace directory (uploads/, outputs/) and, for bash, execute
+// inside the runtime sandbox. Cluster tools (k8s_*) proxy through the kagent
+// controller's cluster query API: the read tools follow the controller's
+// read RBAC, and the destructive tools (k8s_apply, k8s_delete, k8s_scale,
+// k8s_rollout_restart) additionally require per-call user approval and the
+// controller's --enable-cluster-write-tools opt-in.
+// +kubebuilder:validation:Enum=bash;read_file;write_file;edit_file;k8s_get_resource;k8s_list_resources;k8s_pod_logs;k8s_events;k8s_api_resources;k8s_apply;k8s_delete;k8s_scale;k8s_rollout_restart
 type BuiltinToolName string
 
 const (
@@ -487,15 +492,24 @@ const (
 	BuiltinToolName_ReadFile  BuiltinToolName = "read_file"
 	BuiltinToolName_WriteFile BuiltinToolName = "write_file"
 	BuiltinToolName_EditFile  BuiltinToolName = "edit_file"
+
+	BuiltinToolName_K8sGetResource    BuiltinToolName = "k8s_get_resource"
+	BuiltinToolName_K8sListResources  BuiltinToolName = "k8s_list_resources"
+	BuiltinToolName_K8sPodLogs        BuiltinToolName = "k8s_pod_logs"
+	BuiltinToolName_K8sEvents         BuiltinToolName = "k8s_events"
+	BuiltinToolName_K8sAPIResources   BuiltinToolName = "k8s_api_resources"
+	BuiltinToolName_K8sApply          BuiltinToolName = "k8s_apply"
+	BuiltinToolName_K8sDelete         BuiltinToolName = "k8s_delete"
+	BuiltinToolName_K8sScale          BuiltinToolName = "k8s_scale"
+	BuiltinToolName_K8sRolloutRestart BuiltinToolName = "k8s_rollout_restart"
 )
 
-// BuiltinTool enables built-in workspace tools for the agent without
-// requiring skills or an MCP server. Currently supported by the Go
-// declarative runtime.
+// BuiltinTool enables built-in tools for the agent without requiring skills
+// or an MCP server. Currently supported by the Go declarative runtime.
 type BuiltinTool struct {
 	// Names of the built-in tools to enable.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=4
+	// +kubebuilder:validation:MaxItems=13
 	// +required
 	Names []BuiltinToolName `json:"names"`
 }

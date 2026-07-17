@@ -562,6 +562,15 @@ proxy:
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
 
+# Cluster tools back the agent k8s_* builtin tools (cluster query API).
+# Read tools are always available and follow the controller's read RBAC.
+clusterTools:
+  write:
+    # -- Enable the destructive cluster endpoints (apply/delete/scale/
+    # rollout-restart). Each agent call is additionally gated by an in-chat
+    # user approval. Off by default.
+    enabled: false
+
 # ==============================================================================
 # AGENTS
 # ==============================================================================

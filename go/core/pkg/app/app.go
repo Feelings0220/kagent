@@ -63,6 +63,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -136,7 +137,11 @@ type Config struct {
 	// http://host:<port-or-443> so traffic egresses in plaintext to a proxy
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
-	Database           struct {
+	// EnableClusterWriteTools opts in to the destructive cluster endpoints
+	// (apply/delete/scale/rollout-restart) that back the agent k8s_* write
+	// tools. Off by default; each tool call is additionally HITL-gated.
+	EnableClusterWriteTools bool
+	Database                struct {
 		Url           string
 		UrlFile       string
 		VectorEnabled bool
@@ -192,6 +197,9 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure or trusted-proxy")
 	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
+
+	commandLine.BoolVar(&cfg.EnableClusterWriteTools, "enable-cluster-write-tools", false,
+		"When set, enable the destructive cluster endpoints (apply/delete/scale/rollout-restart) that back the agent k8s_* write tools. Off by default.")
 
 	commandLine.BoolVar(&cfg.MCPEgressPlaintext, "mcp-egress-plaintext", false,
 		"When set, rewrite RemoteMCPServer tool URLs and the controller's tool-discovery dial from https://host[:port] to http://host:<port-or-443> so MCP traffic egresses in plaintext to a TLS-originating proxy. Off by default.")
@@ -735,6 +743,26 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		}
 	}
 
+	// Cache-bypassing cluster access for the cluster query endpoints: reads go
+	// straight to the API server so they are not limited by the manager
+	// cache's namespace scoping, and arbitrary kinds don't join the cache.
+	var clusterAccess *handlers.ClusterAccess
+	if uncachedClient, err := client.New(mgr.GetConfig(), client.Options{
+		Scheme: mgr.GetScheme(),
+		Mapper: mgr.GetRESTMapper(),
+	}); err != nil {
+		setupLog.Error(err, "unable to create uncached cluster client; cluster query endpoints will use the cached client")
+	} else if clientset, err := kubernetes.NewForConfig(mgr.GetConfig()); err != nil {
+		setupLog.Error(err, "unable to create clientset; cluster query endpoints will use the cached client")
+	} else {
+		clusterAccess = &handlers.ClusterAccess{
+			Client:       uncachedClient,
+			Clientset:    clientset,
+			RESTMapper:   mgr.GetRESTMapper(),
+			WriteEnabled: cfg.EnableClusterWriteTools,
+		}
+	}
+
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
 		Router:                       router,
 		BindAddr:                     cfg.HttpServerAddr,
@@ -753,6 +781,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
 		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
 		AgentHarnessSessionActor:     agentHarnessSessionActorBackend,
+		ClusterAccess:                clusterAccess,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
