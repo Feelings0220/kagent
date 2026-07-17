@@ -13181,16 +13181,30 @@ spec:
                               description: Names of the built-in tools to enable.
                               items:
                                 description: |-
-                                  BuiltinToolName identifies a built-in workspace tool provided by the agent
-                                  runtime. These tools operate on the per-session workspace directory
-                                  (uploads/, outputs/) and, for bash, execute inside the runtime sandbox.
+                                  BuiltinToolName identifies a built-in tool provided by the agent runtime.
+                                  Workspace tools (bash, read_file, write_file, edit_file) operate on the
+                                  per-session workspace directory (uploads/, outputs/) and, for bash, execute
+                                  inside the runtime sandbox. Cluster tools (k8s_*) proxy through the kagent
+                                  controller's cluster query API: the read tools follow the controller's
+                                  read RBAC, and the destructive tools (k8s_apply, k8s_delete, k8s_scale,
+                                  k8s_rollout_restart) additionally require per-call user approval and the
+                                  controller's --enable-cluster-write-tools opt-in.
                                 enum:
                                 - bash
                                 - read_file
                                 - write_file
                                 - edit_file
+                                - k8s_get_resource
+                                - k8s_list_resources
+                                - k8s_pod_logs
+                                - k8s_events
+                                - k8s_api_resources
+                                - k8s_apply
+                                - k8s_delete
+                                - k8s_scale
+                                - k8s_rollout_restart
                                 type: string
-                              maxItems: 4
+                              maxItems: 13
                               minItems: 1
                               type: array
                           required:

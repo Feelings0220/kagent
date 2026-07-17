@@ -1,7 +1,7 @@
 # 集群查询与操作能力计划（Cluster Access Toolpack）
 
-> 分支：`claude/kagent-cluster-access`
-> 状态：设计定稿，开始实施
+> 分支：`claude/kagent-cluster-access`（PR #8）
+> 状态：已实施（Go 后端 + 运行时 + CRD + Helm + UI 全部完成并通过验证）
 > 前置依赖：@-mention 上下文注入（已合并）、内置工具机制 A1（已合并）、会话级 Always-Allow 审批 A2（PR #7）
 
 ## 1. 需求与问题
@@ -88,13 +88,19 @@ CRD/翻译器/UI：
 ## 4. 实施步骤
 
 1. ✅ 计划文档（本文件）
-2. 选择器修复：resources.go 排序/limit/uncached client + 单测
-3. `cluster_tools.go` 读端点 + RESTMapper kind 解析 + 单测（fake client）
-4. 运行时 `k8s.go` 工具 + 硬编码审批 + 单测
-5. CRD 枚举 + `make -C go generate` + helm CRD 同步 + 翻译器测试
-6. 写端点 + helm `clusterTools.write.enabled` RBAC
-7. UI ChatToolsPanel 目录 + 上下文提示行
-8. 全量验证（go build/test/vet、tsc/jest/eslint/build）、提交、推送
+2. ✅ 选择器修复：resources.go 默认 limit 20→50；pod/job/replicaset 按创建时间倒序；改用 uncached client（`Base.clusterReader()`）
+3. ✅ `cluster_query.go` 读端点（kinds/list/resource/logs/events）+ RESTMapper kind 解析（kubectl 缩写别名表 + 单复数尝试）+ 单测
+4. ✅ 运行时 `adk/pkg/tools/k8s.go`：9 个 `k8s_*` functiontool，经 `KAGENT_URL` 代理；写工具在 `agent.go` 中无条件加入 approvalSet + 单测
+5. ✅ CRD `BuiltinToolName` 枚举扩展 9 个名字，`make generate`/`make manifests`，CRD 同步 helm/kagent-crds（翻译器按字符串透传，无需改动）
+6. ✅ 写端点 `cluster_write.go`（apply/delete/scale/rollout-restart）+ `--enable-cluster-write-tools` 配置门（helm `clusterTools.write.enabled`，默认 false）。注意：controller writer-role 本就有 core/apps/batch 写权限，所以门禁在应用层而非 RBAC 层
+7. ✅ UI ChatToolsPanel 新增 Kubernetes read/write 工具目录（读工具带"一键全加"，写工具琥珀色边框标注需审批）；@-mention 上下文文本追加实时查询提示行
+8. ✅ 全量验证：go build/vet/gofmt 通过；handlers/adk/translator 测试通过（envtest CEL 测试因网络限制无法下载二进制，属环境限制）；UI tsc/jest（282 通过）/eslint/next build 通过
+
+### 遗留 TODO
+
+- Python 运行时 parity（k8s_* 工具）
+- E2E 测试（真实集群中验证 logs/events 端点与审批链路）
+- @ 选择器 kind 下拉动态化（接 `/api/cluster/query/kinds`）
 
 ## 5. 验收标准
 

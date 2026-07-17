@@ -24,7 +24,7 @@ const (
 	// (jenkins, ...) plug in alongside it later.
 	contextProviderKubernetes = "kubernetes"
 
-	defaultResourceListLimit = 20
+	defaultResourceListLimit = 50
 	maxResourceListLimit     = 100
 
 	// maxContextYAMLBytes caps the sanitized resource YAML in the context text.
@@ -95,26 +95,42 @@ func (h *ResourcesHandler) HandleListResources(w ErrorResponseWriter, r *http.Re
 	if kind.namespaced && namespace != "" {
 		opts = append(opts, client.InNamespace(namespace))
 	}
-	if err := h.KubeClient.List(r.Context(), list, opts...); err != nil {
+	// Bypass the manager cache so "all namespaces" browsing works even when
+	// the cache is scoped to a namespace watch list.
+	if err := h.clusterReader().List(r.Context(), list, opts...); err != nil {
 		log.Error(err, "Failed to list resources", "kind", kindName)
 		w.RespondWithError(errors.NewInternalServerError("Failed to list resources", err))
 		return
 	}
 
-	items := make([]api.ClusterResourceItem, 0, len(list.Items))
+	type sortableItem struct {
+		api.ClusterResourceItem
+		created string
+	}
+	items := make([]sortableItem, 0, len(list.Items))
 	for i := range list.Items {
 		item := &list.Items[i]
 		if query != "" && !strings.Contains(strings.ToLower(item.GetName()), query) {
 			continue
 		}
-		items = append(items, api.ClusterResourceItem{
-			Kind:      kindName,
-			Namespace: item.GetNamespace(),
-			Name:      item.GetName(),
-			Status:    resourceStatusSummary(kindName, item),
+		items = append(items, sortableItem{
+			ClusterResourceItem: api.ClusterResourceItem{
+				Kind:      kindName,
+				Namespace: item.GetNamespace(),
+				Name:      item.GetName(),
+				Status:    resourceStatusSummary(kindName, item),
+			},
+			created: item.GetCreationTimestamp().Format("2006-01-02T15:04:05Z"),
 		})
 	}
+	// Workload kinds churn constantly; newest-first surfaces recent activity
+	// across all namespaces instead of whichever namespaces sort first
+	// alphabetically. Stable kinds keep the predictable alphabetical order.
+	recencyKinds := map[string]bool{"pod": true, "job": true, "replicaset": true}
 	sort.Slice(items, func(i, j int) bool {
+		if recencyKinds[kindName] && items[i].created != items[j].created {
+			return items[i].created > items[j].created
+		}
 		if items[i].Namespace != items[j].Namespace {
 			return items[i].Namespace < items[j].Namespace
 		}
@@ -123,8 +139,12 @@ func (h *ResourcesHandler) HandleListResources(w ErrorResponseWriter, r *http.Re
 	if len(items) > limit {
 		items = items[:limit]
 	}
+	results := make([]api.ClusterResourceItem, 0, len(items))
+	for _, item := range items {
+		results = append(results, item.ClusterResourceItem)
+	}
 
-	RespondWithJSON(w, http.StatusOK, api.NewResponse(items, "Successfully listed resources", false))
+	RespondWithJSON(w, http.StatusOK, api.NewResponse(results, "Successfully listed resources", false))
 }
 
 // HandleGetResourceContext handles GET /api/cluster/resources/context
@@ -154,7 +174,7 @@ func (h *ResourcesHandler) HandleGetResourceContext(w ErrorResponseWriter, r *ht
 
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(kind.gvk)
-	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, obj); err != nil {
+	if err := h.clusterReader().Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: name}, obj); err != nil {
 		if apierrors.IsNotFound(err) {
 			w.RespondWithError(errors.NewNotFoundError("Resource not found", err))
 			return
@@ -187,7 +207,7 @@ func (h *ResourcesHandler) recentEvents(r *http.Request, kind contextKind, names
 	if namespace != "" {
 		opts = append(opts, client.InNamespace(namespace))
 	}
-	if err := h.KubeClient.List(r.Context(), eventList, opts...); err != nil {
+	if err := h.clusterReader().List(r.Context(), eventList, opts...); err != nil {
 		return nil
 	}
 
@@ -233,6 +253,9 @@ func buildResourceContextText(kindName string, kind contextKind, obj *unstructur
 		b.WriteString(strings.Join(eventLines, "\n"))
 		b.WriteString("\n")
 	}
+	// The injected context is a point-in-time snapshot; nudge agents that have
+	// the k8s_* builtin tools to re-query live state instead of relying on it.
+	b.WriteString("\n(This is a snapshot taken when the message was sent. If k8s_* tools are available, use them to fetch live logs, YAML, and events for this resource.)\n")
 	return b.String()
 }
 

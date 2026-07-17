@@ -223,6 +223,10 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
   const builtinNames = draftTools.flatMap(tool => tool.builtin?.names ?? []);
   const selectedServer = servers.find(s => s.ref === addFromServer);
   const BUILTIN_TOOL_NAMES = ["bash", "read_file", "write_file", "edit_file"];
+  // Cluster tools proxy through the controller's read RBAC; the write group
+  // is always approval-gated per call.
+  const K8S_READ_TOOL_NAMES = ["k8s_get_resource", "k8s_list_resources", "k8s_pod_logs", "k8s_events", "k8s_api_resources"];
+  const K8S_WRITE_TOOL_NAMES = ["k8s_apply", "k8s_delete", "k8s_scale", "k8s_rollout_restart"];
   const alreadyAdded = new Set(
     mcpEntries.flatMap(t =>
       (t.mcpServer?.toolNames ?? []).map(n => `${mcpServerRef(t as Tool, namespace)}::${n}`)
@@ -389,6 +393,53 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
                         type="button"
                         onClick={() => addBuiltinName(name)}
                         className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
+                      >
+                        <Plus className="h-3 w-3" aria-hidden /> {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {addFromServer !== null && K8S_READ_TOOL_NAMES.some(n => !builtinNames.includes(n)) && (
+                <div className="mt-2 px-2">
+                  <div className="pb-1 text-[11px] text-muted-foreground">Kubernetes — read (logs, YAML, events, listings)</div>
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => K8S_READ_TOOL_NAMES.forEach(name => addBuiltinName(name))}
+                      className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-xs font-medium hover:bg-muted"
+                      title="Add all read tools at once"
+                    >
+                      <Plus className="h-3 w-3" aria-hidden /> all read tools
+                    </button>
+                    {K8S_READ_TOOL_NAMES.filter(n => !builtinNames.includes(n)).map(name => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => addBuiltinName(name)}
+                        className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
+                      >
+                        <Plus className="h-3 w-3" aria-hidden /> {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {addFromServer !== null && K8S_WRITE_TOOL_NAMES.some(n => !builtinNames.includes(n)) && (
+                <div className="mt-2 px-2">
+                  <div className="pb-1 text-[11px] text-muted-foreground">
+                    Kubernetes — write (each call asks for your approval)
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {K8S_WRITE_TOOL_NAMES.filter(n => !builtinNames.includes(n)).map(name => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => addBuiltinName(name)}
+                        className="inline-flex items-center gap-1 rounded-md border border-amber-300 px-2 py-0.5 text-xs hover:bg-muted dark:border-amber-700"
+                        title="Destructive tool — every call requires in-chat approval"
                       >
                         <Plus className="h-3 w-3" aria-hidden /> {name}
                       </button>

@@ -293,6 +293,59 @@ type ClusterResourceContext struct {
 	Text      string `json:"text"`
 }
 
+// Cluster query types (agent k8s_* tools)
+
+// ClusterKindInfo describes one queryable resource kind from API discovery.
+type ClusterKindInfo struct {
+	Kind       string `json:"kind"`
+	Group      string `json:"group,omitempty"`
+	Version    string `json:"version"`
+	Resource   string `json:"resource"`
+	Namespaced bool   `json:"namespaced"`
+}
+
+// ClusterQueryItem is one entry in a cluster query listing.
+type ClusterQueryItem struct {
+	Kind       string `json:"kind"`
+	APIVersion string `json:"apiVersion"`
+	Namespace  string `json:"namespace,omitempty"`
+	Name       string `json:"name"`
+	Status     string `json:"status,omitempty"`
+	CreatedAt  string `json:"createdAt,omitempty"`
+}
+
+// ClusterQueryResource is a single resource's sanitized YAML plus events.
+type ClusterQueryResource struct {
+	Kind       string   `json:"kind"`
+	APIVersion string   `json:"apiVersion"`
+	Namespace  string   `json:"namespace,omitempty"`
+	Name       string   `json:"name"`
+	YAML       string   `json:"yaml"`
+	Events     []string `json:"events,omitempty"`
+}
+
+// ClusterPodLogs is a pod log excerpt.
+type ClusterPodLogs struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Container string `json:"container,omitempty"`
+	Logs      string `json:"logs"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// ClusterEvent is one cluster event for correlation queries.
+type ClusterEvent struct {
+	Namespace       string `json:"namespace,omitempty"`
+	LastSeen        string `json:"lastSeen,omitempty"`
+	Type            string `json:"type,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	InvolvedKind    string `json:"involvedKind,omitempty"`
+	InvolvedName    string `json:"involvedName,omitempty"`
+	SourceComponent string `json:"sourceComponent,omitempty"`
+	Message         string `json:"message,omitempty"`
+	Count           int32  `json:"count,omitempty"`
+}
+
 // Provider types
 
 // ProviderInfo represents information about a provider
