@@ -31,6 +31,7 @@ type Handlers struct {
 	Memory              *MemoryHandler
 	Feedback            *FeedbackHandler
 	Namespaces          *NamespacesHandler
+	Resources           *ResourcesHandler
 	PromptTemplates     *PromptTemplatesHandler
 	Tasks               *TasksHandler
 	Checkpoints         *CheckpointsHandler
@@ -94,6 +95,7 @@ func NewHandlers(
 		Memory:                   NewMemoryHandler(base),
 		Feedback:                 NewFeedbackHandler(base),
 		Namespaces:               NewNamespacesHandler(base),
+		Resources:                NewResourcesHandler(base),
 		PromptTemplates:          NewPromptTemplatesHandler(base),
 		Tasks:                    NewTasksHandler(base),
 		Checkpoints:              NewCheckpointsHandler(base),

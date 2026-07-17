@@ -268,6 +268,27 @@ type NamespaceResponse struct {
 	Status string `json:"status"`
 }
 
+// Cluster resource context types
+
+// ClusterResourceItem is a lightweight cluster resource listing entry used by
+// the chat @-mention autocomplete.
+type ClusterResourceItem struct {
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	// Status is a short, kind-specific status summary (e.g. pod phase).
+	Status string `json:"status,omitempty"`
+}
+
+// ClusterResourceContext is the injectable context text for one resource.
+type ClusterResourceContext struct {
+	Provider  string `json:"provider"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	Text      string `json:"text"`
+}
+
 // Provider types
 
 // ProviderInfo represents information about a provider

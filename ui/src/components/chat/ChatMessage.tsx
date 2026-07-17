@@ -1,6 +1,7 @@
 import { FilePart, Message, TextPart } from "@a2a-js/sdk";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import AttachmentChip from "@/components/chat/AttachmentChip";
+import ChatContextChip from "@/components/chat/ChatContextChip";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
@@ -33,8 +34,13 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   if (!message) return null;
 
-  const textParts = message.parts?.filter(part => part.kind === "text") || [];
-  const content = textParts.map(part => (part as TextPart).text).join("");
+  // Injected cluster-context parts are rendered as chips, not inline text.
+  const isContextPart = (part: { kind: string; metadata?: Record<string, unknown> }) =>
+    part.kind === "text" && !!part.metadata?.kagent_context;
+
+  const textParts = (message.parts?.filter(part => part.kind === "text" && !isContextPart(part)) || []) as TextPart[];
+  const content = textParts.map(part => part.text).join("");
+  const contextParts = (message.parts?.filter(part => isContextPart(part)) || []) as TextPart[];
   const fileParts = (message.parts?.filter(part => part.kind === "file") || []) as FilePart[];
 
   const source = message.role === "user" ? "user" : "assistant";
@@ -146,8 +152,8 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     return null;
   }
 
-  // Skip empty messages (attachment-only messages still render their chips)
-  if (!content && fileParts.length === 0) {
+  // Skip empty messages (attachment/context-only messages still render chips)
+  if (!content && fileParts.length === 0 && contextParts.length === 0) {
     return null;
   }
 
@@ -170,6 +176,24 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <KagentLogo className="w-4 h-4" />
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
+      {contextParts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-1">
+          {contextParts.map((part, index) => {
+            const contextMeta = (part.metadata as Record<string, unknown> | undefined)?.kagent_context as
+              | { kind?: string; namespace?: string; name?: string }
+              | undefined;
+            return (
+              <ChatContextChip
+                key={index}
+                kind={contextMeta?.kind || "resource"}
+                namespace={contextMeta?.namespace}
+                name={contextMeta?.name || "unknown"}
+                text={part.text}
+              />
+            );
+          })}
+        </div>
+      )}
       {content && <TruncatableText content={String(content)} className="break-words text-primary-foreground" />}
       {fileParts.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-1">

@@ -18,6 +18,9 @@ import ChatModelSwitcher from "@/components/chat/ChatModelSwitcher";
 import ChatToolsPanel from "@/components/chat/ChatToolsPanel";
 import AttachmentChip from "@/components/chat/AttachmentChip";
 import ArtifactsPanel from "@/components/chat/ArtifactsPanel";
+import ChatContextPicker from "@/components/chat/ChatContextPicker";
+import ChatContextChip from "@/components/chat/ChatContextChip";
+import { getClusterResourceContext, type ClusterResourceContext, type ClusterResourceItem } from "@/app/actions/cluster";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -46,6 +49,24 @@ const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required
 // Attachment limits: individual file size and count per message.
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 5;
+// Cluster-context injections per message.
+const MAX_CONTEXTS = 5;
+
+// Builds the A2A text part for one injected cluster context. The metadata
+// marker lets the UI render a chip instead of the raw text; runtimes pass
+// text parts straight to the model.
+const contextToTextPart = (context: ClusterResourceContext) => ({
+  kind: "text" as const,
+  text: context.text,
+  metadata: {
+    kagent_context: {
+      provider: context.provider,
+      kind: context.kind,
+      namespace: context.namespace,
+      name: context.name,
+    },
+  },
+});
 
 interface PendingAttachment {
   name: string;
@@ -109,8 +130,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [pendingContexts, setPendingContexts] = useState<ClusterResourceContext[]>([]);
   const [sessionArtifacts, setSessionArtifacts] = useState<FileArtifact[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const openContextPickerRef = useRef<(() => void) | null>(null);
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
@@ -201,6 +224,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       isNearBottomRef.current = true;
       setShowJumpToLatest(false);
       setSessionArtifacts([]);
+      setPendingContexts([]);
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -369,9 +393,33 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setPendingAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
+  /** Fetch and queue a cluster resource's context for the next message. */
+  const handlePickContext = async (item: ClusterResourceItem) => {
+    if (pendingContexts.length >= MAX_CONTEXTS) {
+      toast.error(`At most ${MAX_CONTEXTS} context items per message`);
+      return;
+    }
+    const exists = pendingContexts.some(
+      c => c.kind === item.kind && c.namespace === (item.namespace || undefined) && c.name === item.name
+    );
+    if (exists) return;
+
+    const response = await getClusterResourceContext(item.kind, item.name, item.namespace);
+    if (response.error || !response.data) {
+      toast.error(response.message || "Failed to fetch resource context");
+      return;
+    }
+    const context = response.data;
+    setPendingContexts(prev => [...prev, context]);
+  };
+
+  const removeContext = (index: number) => {
+    setPendingContexts(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    const hasContent = currentInputMessage.trim() || pendingAttachments.length > 0;
+    const hasContent = currentInputMessage.trim() || pendingAttachments.length > 0 || pendingContexts.length > 0;
     if (!hasContent || !selectedAgentName || !selectedNamespace) {
       return;
     }
@@ -383,9 +431,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     const userMessageText = currentInputMessage;
     const attachments = pendingAttachments;
+    const contexts = pendingContexts;
     const restoreDraft = () => {
       setCurrentInputMessage(userMessageText);
       setPendingAttachments(attachments);
+      setPendingContexts(contexts);
     };
 
     // Cross-tab guard: fetch the latest session state before mutating anything.
@@ -410,6 +460,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     setCurrentInputMessage("");
     setPendingAttachments([]);
+    setPendingContexts([]);
     setChatStatus("thinking");
     // Sending a message always re-engages follow-scrolling.
     scrollToBottom();
@@ -431,6 +482,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       // Only include a text part when there is text — some providers reject
       // empty text content blocks (attachment-only sends).
       parts: [
+        ...contexts.map(contextToTextPart),
         ...(userMessageText ? [{ kind: "text" as const, text: userMessageText }] : []),
         ...attachments.map(attachmentToDisplayPart),
       ],
@@ -538,14 +590,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         messageId,
         contextId: currentSessionId,
       });
-      if (attachments.length > 0) {
-        // Drop an empty text part so attachment-only sends don't ship an
-        // empty text content block (rejected by some providers).
+      if (attachments.length > 0 || contexts.length > 0) {
+        // Drop an empty text part so attachment/context-only sends don't ship
+        // an empty text content block (rejected by some providers).
         if (!userMessageText) {
           a2aMessage.parts = a2aMessage.parts.filter(
             part => part.kind !== "text" || (part as { text: string }).text !== "",
           );
         }
+        // Cluster context goes ahead of the user's question.
+        a2aMessage.parts.unshift(...contexts.map(contextToTextPart));
         a2aMessage.parts.push(...attachments.map(attachmentToFilePart));
       }
 
@@ -1091,6 +1145,17 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Typing "@" at the start of a word opens the cluster context picker.
+    if (e.key === "@") {
+      const value = textareaRef.current?.value ?? "";
+      const cursor = textareaRef.current?.selectionStart ?? value.length;
+      const previous = cursor > 0 ? value[cursor - 1] : "";
+      if (previous === "" || /\s/.test(previous)) {
+        e.preventDefault();
+        openContextPickerRef.current?.();
+        return;
+      }
+    }
     if (e.key !== "Enter") return;
     // Don't send while an IME composition is in progress (e.g. Chinese/Japanese
     // input) — Enter is confirming the composition, not submitting. keyCode 229
@@ -1100,7 +1165,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // Shift+Enter inserts a newline.
     if (e.shiftKey) return;
     e.preventDefault();
-    if ((currentInputMessage.trim() || pendingAttachments.length > 0) && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+    if ((currentInputMessage.trim() || pendingAttachments.length > 0 || pendingContexts.length > 0) && selectedAgentName && selectedNamespace && chatStatus === "ready") {
       handleSendMessage(e);
     }
   };
@@ -1215,8 +1280,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           </div>
         )}
 
-        {pendingAttachments.length > 0 && (
+        {(pendingAttachments.length > 0 || pendingContexts.length > 0) && (
           <div className="flex flex-wrap gap-1.5 pb-2">
+            {pendingContexts.map((context, index) => (
+              <ChatContextChip
+                key={`${context.kind}-${context.namespace ?? ""}-${context.name}`}
+                kind={context.kind}
+                namespace={context.namespace}
+                name={context.name}
+                text={context.text}
+                onRemove={() => removeContext(index)}
+              />
+            ))}
             {pendingAttachments.map((attachment, index) => (
               <AttachmentChip
                 key={`${attachment.name}-${index}`}
@@ -1233,6 +1308,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           <div className="flex items-center pb-0.5">
             <ChatToolsPanel agentName={selectedAgentName} namespace={selectedNamespace} />
             <ChatModelSwitcher agentName={selectedAgentName} namespace={selectedNamespace} />
+            <ChatContextPicker
+              onPick={handlePickContext}
+              openRef={openContextPickerRef}
+              disabled={chatStatus !== "ready"}
+            />
           </div>
           <Textarea
             ref={textareaRef}
@@ -1310,7 +1390,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               <Button
                 type="submit"
                 size="icon"
-                disabled={(!currentInputMessage.trim() && pendingAttachments.length === 0) || chatStatus !== "ready"}
+                disabled={(!currentInputMessage.trim() && pendingAttachments.length === 0 && pendingContexts.length === 0) || chatStatus !== "ready"}
                 aria-label="Send message"
               >
                 <ArrowBigUp className="h-4 w-4" aria-hidden />

@@ -124,4 +124,25 @@ Typical flow:
    completes, `report.md` appears in the Artifacts bar.
 3. Click the eye icon to preview the rendered markdown, or download it.
 
+## Cluster context injection (@-mention)
+
+Reference live cluster resources directly in a chat message: click the **@**
+button next to the composer (or type `@` at the start of a word), pick a
+resource kind (pod, deployment, service, configmap, node, …), optionally a
+namespace, and search by name.
+
+- The picked resource appears as a context chip on the draft; on send, its
+  sanitized YAML (managedFields and last-applied stripped, ConfigMap values
+  truncated) plus its recent events are injected ahead of your question.
+- Works with every agent — Declarative (Go/Python) and BYO — because the
+  context travels as a plain text part; no tools are required on the agent.
+- In the transcript the injection renders as a chip; click it to see exactly
+  what the model received.
+- Secrets are deliberately not mentionable. The backend only exposes kinds
+  covered by the controller's read-only RBAC (core, apps, batch).
+
+Typical flow: `@pod` → pick `prod/nginx-7d4b...` (status `CrashLoopBackOff`)
+→ ask "why is this pod crash-looping?" — the agent answers from the injected
+spec, status, and events without needing a tool round-trip.
+
 [skills]: ./architecture/crds-and-types.md
