@@ -276,6 +276,9 @@ type ClusterResourceItem struct {
 	Kind      string `json:"kind"`
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
+	// Scope is a provider-specific parent scope (e.g. the Jenkins job a
+	// build belongs to). Kubernetes items use Namespace instead.
+	Scope string `json:"scope,omitempty"`
 	// Status is a short, kind-specific status summary (e.g. pod phase).
 	Status string `json:"status,omitempty"`
 }
@@ -285,6 +288,7 @@ type ClusterResourceContext struct {
 	Provider  string `json:"provider"`
 	Kind      string `json:"kind"`
 	Namespace string `json:"namespace,omitempty"`
+	Scope     string `json:"scope,omitempty"`
 	Name      string `json:"name"`
 	Text      string `json:"text"`
 }

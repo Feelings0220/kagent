@@ -99,6 +99,22 @@ spec:
             - name: METRICS_SECURE
               value: {{ .Values.controller.metrics.secureServing | quote }}
             {{- end }}
+            {{- if .Values.contextProviders.jenkins.enabled }}
+            - name: JENKINS_URL
+              value: {{ required "contextProviders.jenkins.url is required when the Jenkins provider is enabled" .Values.contextProviders.jenkins.url | quote }}
+            {{- if .Values.contextProviders.jenkins.existingSecret }}
+            - name: JENKINS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contextProviders.jenkins.existingSecret }}
+                  key: {{ .Values.contextProviders.jenkins.usernameKey | default "username" }}
+            - name: JENKINS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.contextProviders.jenkins.existingSecret }}
+                  key: {{ .Values.contextProviders.jenkins.tokenKey | default "token" }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}

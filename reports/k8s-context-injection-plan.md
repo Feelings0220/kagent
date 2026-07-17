@@ -80,11 +80,15 @@ type ContextProvider interface {
 前端 @ 菜单第一级即 provider（Kubernetes / Jenkins / …），选择器与 chip 均带 provider 标识
 （`kagent_context.provider`），UI 无需为新 provider 改结构。
 
-### 3.2 Jenkins provider（第二批）
+### 3.2 Jenkins provider（✅ 已实现）
 - **配置**：helm values `contextProviders.jenkins: {url, credentialsSecretRef}`（用户名 + API token 存 Secret）；
 - **kinds**：`job`（列任务）、`build`（某 job 最近构建，含结果/时长）、`console`（某次构建的控制台日志尾部 N KB）；
 - **接口映射**：Jenkins REST（`/api/json`、`/job/<name>/<n>/consoleText`），只读；
 - **典型场景**："@jenkins-build my-app#123 为什么失败？" → 注入构建元数据 + 失败 stage 日志尾部；
+- **实现说明**：`handlers/jenkins.go`（providers 发现接口 + job/build 列表 + 上下文文本，
+  控制台日志取尾部 8KB 并对 password/token/secret/api-key 形态的值做遮蔽）；
+  helm `contextProviders.jenkins.{enabled,url,existingSecret}` → 控制器 env（凭据走 secretKeyRef）；
+  UI @ 面板出现 provider 切换 tab（kubernetes/jenkins），build 选择级联 job 下拉；httptest 单测覆盖；
 - **安全**：日志注入前做长度截断 + 可选敏感词遮蔽（token/password 正则）。
 
 ### 3.3 其他候选 provider（按需排期）

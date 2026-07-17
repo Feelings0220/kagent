@@ -20,7 +20,7 @@ import AttachmentChip from "@/components/chat/AttachmentChip";
 import ArtifactsPanel from "@/components/chat/ArtifactsPanel";
 import ChatContextPicker from "@/components/chat/ChatContextPicker";
 import ChatContextChip from "@/components/chat/ChatContextChip";
-import { getClusterResourceContext, type ClusterResourceContext, type ClusterResourceItem } from "@/app/actions/cluster";
+import { getClusterResourceContext, getJenkinsResourceContext, type ClusterResourceContext, type ClusterResourceItem } from "@/app/actions/cluster";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -63,6 +63,7 @@ const contextToTextPart = (context: ClusterResourceContext) => ({
       provider: context.provider,
       kind: context.kind,
       namespace: context.namespace,
+      scope: context.scope,
       name: context.name,
     },
   },
@@ -400,11 +401,19 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       return;
     }
     const exists = pendingContexts.some(
-      c => c.kind === item.kind && c.namespace === (item.namespace || undefined) && c.name === item.name
+      c =>
+        c.provider === (item.provider || "kubernetes") &&
+        c.kind === item.kind &&
+        c.namespace === (item.namespace || undefined) &&
+        c.scope === (item.scope || undefined) &&
+        c.name === item.name
     );
     if (exists) return;
 
-    const response = await getClusterResourceContext(item.kind, item.name, item.namespace);
+    const response =
+      item.provider === "jenkins"
+        ? await getJenkinsResourceContext(item.kind, item.name, item.scope)
+        : await getClusterResourceContext(item.kind, item.name, item.namespace);
     if (response.error || !response.data) {
       toast.error(response.message || "Failed to fetch resource context");
       return;
@@ -1284,9 +1293,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           <div className="flex flex-wrap gap-1.5 pb-2">
             {pendingContexts.map((context, index) => (
               <ChatContextChip
-                key={`${context.kind}-${context.namespace ?? ""}-${context.name}`}
+                key={`${context.provider}-${context.kind}-${context.scope ?? ""}-${context.namespace ?? ""}-${context.name}`}
                 kind={context.kind}
                 namespace={context.namespace}
+                scope={context.scope}
                 name={context.name}
                 text={context.text}
                 onRemove={() => removeContext(index)}

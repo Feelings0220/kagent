@@ -8,15 +8,19 @@ interface ChatContextChipProps {
   kind: string;
   name: string;
   namespace?: string;
+  /** Provider-specific parent scope (e.g. the Jenkins job of a build). */
+  scope?: string;
   /** Injected context text; when present the chip opens a viewer dialog. */
   text?: string;
   onRemove?: () => void;
 }
 
-/** Chip for an injected cluster-resource context (composer draft + history). */
-export default function ChatContextChip({ kind, name, namespace, text, onRemove }: ChatContextChipProps) {
+/** Chip for an injected context item (composer draft + history). */
+export default function ChatContextChip({ kind, name, namespace, scope, text, onRemove }: ChatContextChipProps) {
   const [showText, setShowText] = useState(false);
-  const label = `${kind} ${namespace ? `${namespace}/` : ""}${name}`;
+  const label = scope
+    ? `${kind} ${scope} #${name}`
+    : `${kind} ${namespace ? `${namespace}/` : ""}${name}`;
 
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 px-2 py-0.5 text-xs">

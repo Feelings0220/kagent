@@ -180,13 +180,14 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <div className="flex flex-wrap gap-1.5 mb-1">
           {contextParts.map((part, index) => {
             const contextMeta = (part.metadata as Record<string, unknown> | undefined)?.kagent_context as
-              | { kind?: string; namespace?: string; name?: string }
+              | { kind?: string; namespace?: string; scope?: string; name?: string }
               | undefined;
             return (
               <ChatContextChip
                 key={index}
                 kind={contextMeta?.kind || "resource"}
                 namespace={contextMeta?.namespace}
+                scope={contextMeta?.scope}
                 name={contextMeta?.name || "unknown"}
                 text={part.text}
               />
