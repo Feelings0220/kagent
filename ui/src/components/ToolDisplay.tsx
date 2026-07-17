@@ -24,6 +24,8 @@ interface ToolDisplayProps {
   /** For subagent HITL: the name of the subagent that made this tool call. */
   subagentName?: string;
   onApprove?: () => void;
+  /** Approve and stop asking for this tool for the rest of the session. */
+  onApproveAlways?: () => void;
   onReject?: (reason?: string) => void;
   tokenStats?: TokenStats;
 }
@@ -142,7 +144,7 @@ const CompactToolRow = ({ call, result, status, isError, subagentName, tokenStat
   );
 };
 
-const ToolDisplay = ({ call, result, status = "requested", isError = false, isDecided = false, subagentName, onApprove, onReject, tokenStats }: ToolDisplayProps) => {
+const ToolDisplay = ({ call, result, status = "requested", isError = false, isDecided = false, subagentName, onApprove, onApproveAlways, onReject, tokenStats }: ToolDisplayProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -221,6 +223,19 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
               >
                 Approve
               </Button>
+              {onApproveAlways && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setIsSubmitting(true);
+                    onApproveAlways();
+                  }}
+                  title="Approve and don't ask again for this tool in this session"
+                >
+                  Always allow (session)
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="destructive"

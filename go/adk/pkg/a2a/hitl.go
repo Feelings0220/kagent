@@ -71,6 +71,10 @@ type HitlConfirmationPayload struct {
 	RejectionReasons map[string]string       `json:"rejection_reasons,omitempty"`
 	RejectionReason  string                  `json:"rejection_reason,omitempty"`
 	Answers          []AskUserAnswer         `json:"answers,omitempty"`
+	// AlwaysAllow marks an approval as "always allow for this session": the
+	// approval callback records the tool in session state and skips future
+	// confirmations for it within the session.
+	AlwaysAllow bool `json:"always_allow,omitempty"`
 }
 
 // HasSubagentHitl reports whether the payload carries nested HITL state from a subagent.
@@ -130,6 +134,9 @@ func (p HitlConfirmationPayload) ToMap() map[string]any {
 		}
 		result["answers"] = answers
 	}
+	if p.AlwaysAllow {
+		result["always_allow"] = true
+	}
 	if len(result) == 0 {
 		return nil
 	}
@@ -152,6 +159,7 @@ func ParseHitlConfirmationPayload(raw map[string]any) HitlConfirmationPayload {
 	payload.RejectionReasons = parseStringMap(raw["rejection_reasons"])
 	payload.Answers = parseAskUserAnswersValue(raw["answers"])
 	payload.HitlParts = parseHitlPartsValue(raw["hitl_parts"])
+	payload.AlwaysAllow, _ = raw["always_allow"].(bool)
 
 	return payload
 }
@@ -451,9 +459,13 @@ func ProcessHitlDecision(
 
 	// Uniform approve/reject.
 	confirmed := decision == DecisionApprove
+	alwaysAllow, _ := extractMessageField(message, "always_allow").(bool)
 	var parts []a2atype.Part
 	for fcID, pc := range pending {
 		payload := ParseHitlConfirmationPayload(pc.OriginalPayload)
+		if confirmed && alwaysAllow {
+			payload.AlwaysAllow = true
+		}
 		if !confirmed {
 			payload.RejectionReason = rejectionReasons["*"]
 		}
