@@ -43,6 +43,7 @@ const (
 	APIPathModels               = "/api/models"
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
+	APIPathClusterResources     = "/api/cluster/resources"
 	APIPathPromptTemplates      = "/api/prompttemplates"
 	APIPathA2A                  = "/api/a2a"
 	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
@@ -297,6 +298,10 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
+
+	// Cluster resource context (chat @-mention)
+	s.router.HandleFunc(APIPathClusterResources, adaptHandler(s.handlers.Resources.HandleListResources)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathClusterResources+"/context", adaptHandler(s.handlers.Resources.HandleGetResourceContext)).Methods(http.MethodGet)
 
 	// Agent Substrate inventory (WorkerPools, ActorTemplates, ate-api actors/workers)
 	s.router.HandleFunc(APIPathSubstrateStatus, adaptHandler(s.handlers.Substrate.HandleGetSubstrateStatus)).Methods(http.MethodGet)
