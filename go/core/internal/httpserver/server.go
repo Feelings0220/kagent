@@ -44,6 +44,7 @@ const (
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
 	APIPathClusterResources     = "/api/cluster/resources"
+	APIPathContext              = "/api/context"
 	APIPathPromptTemplates      = "/api/prompttemplates"
 	APIPathA2A                  = "/api/a2a"
 	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
@@ -302,6 +303,11 @@ func (s *HTTPServer) setupRoutes() {
 	// Cluster resource context (chat @-mention)
 	s.router.HandleFunc(APIPathClusterResources, adaptHandler(s.handlers.Resources.HandleListResources)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathClusterResources+"/context", adaptHandler(s.handlers.Resources.HandleGetResourceContext)).Methods(http.MethodGet)
+
+	// Context providers (chat @-mention): discovery + Jenkins
+	s.router.HandleFunc(APIPathContext+"/providers", adaptHandler(s.handlers.Jenkins.HandleListProviders)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathContext+"/jenkins/resources", adaptHandler(s.handlers.Jenkins.HandleListJenkinsResources)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathContext+"/jenkins/resources/context", adaptHandler(s.handlers.Jenkins.HandleGetJenkinsResourceContext)).Methods(http.MethodGet)
 
 	// Agent Substrate inventory (WorkerPools, ActorTemplates, ate-api actors/workers)
 	s.router.HandleFunc(APIPathSubstrateStatus, adaptHandler(s.handlers.Substrate.HandleGetSubstrateStatus)).Methods(http.MethodGet)

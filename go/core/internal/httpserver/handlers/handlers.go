@@ -32,6 +32,7 @@ type Handlers struct {
 	Feedback            *FeedbackHandler
 	Namespaces          *NamespacesHandler
 	Resources           *ResourcesHandler
+	Jenkins             *JenkinsHandler
 	PromptTemplates     *PromptTemplatesHandler
 	Tasks               *TasksHandler
 	Checkpoints         *CheckpointsHandler
@@ -96,6 +97,7 @@ func NewHandlers(
 		Feedback:                 NewFeedbackHandler(base),
 		Namespaces:               NewNamespacesHandler(base),
 		Resources:                NewResourcesHandler(base),
+		Jenkins:                  NewJenkinsHandler(base),
 		PromptTemplates:          NewPromptTemplatesHandler(base),
 		Tasks:                    NewTasksHandler(base),
 		Checkpoints:              NewCheckpointsHandler(base),

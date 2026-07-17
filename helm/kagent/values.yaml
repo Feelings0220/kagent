@@ -503,6 +503,22 @@ substrate:
   enabled: false
 
 # ==============================================================================
+# CONTEXT PROVIDERS (chat @-mention)
+# ==============================================================================
+# Kubernetes context is always available (uses the controller's read RBAC).
+# Additional providers are enabled here.
+
+contextProviders:
+  jenkins:
+    enabled: false
+    # Base URL of the Jenkins instance, e.g. https://jenkins.example.com
+    url: ""
+    # Secret (in the kagent namespace) holding the Jenkins credentials.
+    existingSecret: ""
+    usernameKey: username
+    tokenKey: token
+
+# ==============================================================================
 # BUILT-IN TOOLS
 # ==============================================================================
 

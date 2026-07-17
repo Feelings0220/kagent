@@ -141,6 +141,12 @@ namespace, and search by name.
 - Secrets are deliberately not mentionable. The backend only exposes kinds
   covered by the controller's read-only RBAC (core, apps, batch).
 
+When the **Jenkins provider** is configured (helm `contextProviders.jenkins`:
+url + a Secret with `username`/`token` keys), the @ picker gains a *jenkins*
+tab: mention a `job` (status, health, recent builds) or a `build` (result,
+cause, and the console log tail with credential-looking values masked) —
+e.g. "@build my-app #123 why did this fail?".
+
 Typical flow: `@pod` → pick `prod/nginx-7d4b...` (status `CrashLoopBackOff`)
 → ask "why is this pod crash-looping?" — the agent answers from the injected
 spec, status, and events without needing a tool round-trip.
