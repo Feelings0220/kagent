@@ -10,6 +10,7 @@ interface ToolCallDisplayProps {
   currentMessage: Message;
   allMessages: Message[];
   onApprove?: (toolCallId: string) => void;
+  onApproveAlways?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
   pendingDecisions?: Record<string, ToolDecision>;
 }
@@ -172,7 +173,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
 };
 
 
-const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions }: ToolCallDisplayProps) => {
+const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onApproveAlways, onReject, pendingDecisions }: ToolCallDisplayProps) => {
   // Determine which tool call IDs this component instance "owns" by finding,
   // for each ID introduced by currentMessage, whether currentMessage is the
   // FIRST message in allMessages that introduces that ID.
@@ -376,6 +377,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             isDecided={isDecided}
             subagentName={subagentName}
             onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
+            onApproveAlways={showButtons && onApproveAlways ? () => onApproveAlways(toolCall.id) : undefined}
             onReject={showButtons && onReject ? (reason?: string) => onReject(toolCall.id, reason) : undefined}
             tokenStats={tokenStats}
           />

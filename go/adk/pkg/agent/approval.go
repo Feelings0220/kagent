@@ -49,6 +49,47 @@ func MakeStripConfirmationPartsCallback() llmagent.BeforeModelCallback {
 	}
 }
 
+// SessionApprovedToolsStateKey is the session-state key holding the list of
+// tool names the user approved with "always allow for this session". The key
+// has no app:/user: prefix, so its scope is exactly one session.
+const SessionApprovedToolsStateKey = "kagent_approved_tools"
+
+// sessionApprovedTools reads the session's always-allowed tool names.
+func sessionApprovedTools(ctx agent.ToolContext) map[string]bool {
+	allowed := map[string]bool{}
+	value, err := ctx.ReadonlyState().Get(SessionApprovedToolsStateKey)
+	if err != nil || value == nil {
+		return allowed
+	}
+	switch list := value.(type) {
+	case []string:
+		for _, name := range list {
+			allowed[name] = true
+		}
+	case []any: // JSON round-trip shape
+		for _, item := range list {
+			if name, ok := item.(string); ok {
+				allowed[name] = true
+			}
+		}
+	}
+	return allowed
+}
+
+// rememberSessionApprovedTool appends a tool to the session allow list.
+func rememberSessionApprovedTool(ctx agent.ToolContext, toolName string) error {
+	allowed := sessionApprovedTools(ctx)
+	if allowed[toolName] {
+		return nil
+	}
+	names := make([]string, 0, len(allowed)+1)
+	for name := range allowed {
+		names = append(names, name)
+	}
+	names = append(names, toolName)
+	return ctx.State().Set(SessionApprovedToolsStateKey, names)
+}
+
 // MakeApprovalCallback creates a BeforeToolCallback that gates execution of
 // tools in the approval set behind request_confirmation / ToolConfirmation.
 // Port of kagent-adk/src/kagent/adk/_approval.py:make_approval_callback().
@@ -61,9 +102,24 @@ func MakeApprovalCallback(toolsRequiringApproval map[string]bool) llmagent.Befor
 			return nil, nil
 		}
 
+		// Previously approved with "always allow" in this session.
+		if ctx.ToolConfirmation() == nil && sessionApprovedTools(ctx)[toolName] {
+			return nil, nil
+		}
+
 		// On re-invocation after confirmation, ADK populates ToolConfirmation.
 		if confirmation := ctx.ToolConfirmation(); confirmation != nil {
 			if confirmation.Confirmed {
+				// "Always allow for this session": remember the tool so later
+				// calls skip the confirmation round-trip.
+				if payload, ok := confirmation.Payload.(map[string]any); ok {
+					if always, _ := payload["always_allow"].(bool); always {
+						if err := rememberSessionApprovedTool(ctx, toolName); err != nil {
+							// Non-fatal: the approval itself still stands.
+							_ = err
+						}
+					}
+				}
 				// Approved — proceed with tool execution.
 				return nil, nil
 			}

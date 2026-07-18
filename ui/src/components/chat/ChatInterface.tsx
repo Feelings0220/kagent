@@ -1109,6 +1109,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     recordDecision(toolCallId, "approve");
   };
 
+  /**
+   * "Always allow (session)": approves every pending tool and asks the
+   * runtime to remember them in session state, so subsequent calls of the
+   * same tools skip the approval round-trip for the rest of the session.
+   */
+  const handleApproveAlways = (_toolCallId: string) => {
+    sendApprovalDecision(
+      { decision_type: "approve", always_allow: true },
+      "Approved (always allow for this session)",
+    );
+  };
+
   const handleReject = (toolCallId: string, reason?: string) => {
     recordDecision(toolCallId, "reject", reason);
   };
@@ -1311,6 +1323,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     allMessages={allMessages}
                     agentContext={agentContext}
                     onApprove={handleApprove}
+                    onApproveAlways={handleApproveAlways}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
@@ -1325,6 +1338,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     allMessages={allMessages}
                     agentContext={agentContext}
                     onApprove={handleApprove}
+                    onApproveAlways={handleApproveAlways}
                     onReject={handleReject}
                     onAskUserSubmit={handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
