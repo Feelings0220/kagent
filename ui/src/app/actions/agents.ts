@@ -724,6 +724,26 @@ export async function updateAgentTools(
 }
 
 /**
+ * Toggles the deployment-wide default builtin toolpack (read-only cluster/CI
+ * query tools) for one agent via spec.declarative.disableDefaultTools.
+ */
+export async function updateAgentDefaultTools(
+  agentName: string,
+  namespace: string,
+  enabled: boolean
+): Promise<BaseResponse<Agent>> {
+  return updateDeclarativeAgentSpec(
+    agentName,
+    namespace,
+    (declarative) => {
+      declarative.disableDefaultTools = enabled ? undefined : true;
+    },
+    enabled ? "Default cluster access enabled" : "Default cluster access disabled",
+    "Error updating default tools"
+  );
+}
+
+/**
  * Gets all agents, optionally filtered by namespace.
  * @param opts.namespace When set, calls `/agents?namespace=<ns>`; otherwise calls `/agents`.
  * @returns A promise with the matching agents

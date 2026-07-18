@@ -136,6 +136,12 @@ var DefaultSkillsInitImageConfig = ImageConfig{
 // instead of auto-creating a per-agent ServiceAccount.
 var DefaultServiceAccountName string
 
+// DefaultBuiltinTools is the deployment-wide builtin toolpack merged into
+// every declarative agent unless spec.declarative.disableDefaultTools is set.
+// Populated from the --default-builtin-tools flag; intended for read-only
+// query tools so agents can investigate the cluster out of the box.
+var DefaultBuiltinTools []string
+
 // DefaultAgentPodLabels is a set of labels applied to all agent pod templates.
 // Per-agent labels from the Agent CRD spec take precedence over these defaults.
 var DefaultAgentPodLabels map[string]string

@@ -570,6 +570,20 @@ clusterTools:
     # rollout-restart). Each agent call is additionally gated by an in-chat
     # user approval. Off by default.
     enabled: false
+  # -- Builtin tools merged into every declarative agent (the default
+  # read-only query toolpack). Set to "" to disable the default toolpack.
+  # Unset keeps the controller's built-in default (k8s_* read + jenkins_*
+  # read tools). Agents opt out individually with
+  # spec.declarative.disableDefaultTools.
+  defaultBuiltinTools: null
+
+# Out-of-the-box SRE investigator agent: paste a Jenkins pipeline link or
+# describe a failure and it produces an evidence-backed root-cause analysis
+# using the default read-only toolpack.
+sreAgent:
+  enabled: true
+  # -- ModelConfig reference; defaults to the chart's default-model-config.
+  modelConfigRef: ""
 
 # ==============================================================================
 # AGENTS

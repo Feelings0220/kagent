@@ -31,6 +31,11 @@ const (
 	DefaultOllamaModel    = "llama3.2"
 )
 
+// askUserRestraintInstruction curbs over-use of the ask_user tool: agents
+// should investigate with their tools first and reserve questions for
+// decisions only the user can make (preferences, authorization).
+const askUserRestraintInstruction = "\n\nWhen you need information, prefer using your tools to find it yourself instead of asking the user. Only use ask_user for decisions you genuinely cannot resolve with tools, such as preferences, approvals, or missing credentials — never for facts you can look up."
+
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
@@ -131,7 +136,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	llmAgentConfig := llmagent.Config{
 		Name:                 agentName,
 		Description:          agentConfig.Description,
-		Instruction:          agentConfig.Instruction,
+		Instruction:          agentConfig.Instruction + askUserRestraintInstruction,
 		Model:                llmModel,
 		IncludeContents:      llmagent.IncludeContentsDefault,
 		Tools:                localTools,
@@ -195,14 +200,17 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 		for _, t := range localTools {
 			existing[t.Name()] = true
 		}
-		var missing, missingK8s []string
+		var missing, missingK8s, missingJenkins []string
 		for _, name := range agentConfig.BuiltinTools {
 			if existing[name] {
 				continue
 			}
-			if tools.IsK8sToolName(name) {
+			switch {
+			case tools.IsK8sToolName(name):
 				missingK8s = append(missingK8s, name)
-			} else {
+			case tools.IsJenkinsToolName(name):
+				missingJenkins = append(missingJenkins, name)
+			default:
 				missing = append(missing, name)
 			}
 		}
@@ -218,19 +226,26 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 			localTools = append(localTools, builtinTools...)
 			log.Info("Wired builtin workspace tools", "workspaceDirectory", workspaceDirectory, "tools", missing)
 		}
-		if len(missingK8s) > 0 {
-			// The k8s tools proxy through the controller; without KAGENT_URL
+		if len(missingK8s) > 0 || len(missingJenkins) > 0 {
+			// These tools proxy through the controller; without KAGENT_URL
 			// there is nothing to call, so they are skipped with a log line.
 			kagentURL := strings.TrimSpace(os.Getenv("KAGENT_URL"))
 			k8sTools, err := tools.NewK8sTools(kagentURL, missingK8s, nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create builtin k8s tools: %w", err)
 			}
-			if len(k8sTools) == 0 {
-				log.Info("Skipping builtin k8s tools: KAGENT_URL is not set", "tools", missingK8s)
+			jenkinsTools, err := tools.NewJenkinsTools(kagentURL, missingJenkins, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create builtin jenkins tools: %w", err)
+			}
+			proxied := append(k8sTools, jenkinsTools...)
+			if kagentURL == "" {
+				log.Info("Skipping controller-proxied builtin tools: KAGENT_URL is not set",
+					"k8sTools", missingK8s, "jenkinsTools", missingJenkins)
 			} else {
-				localTools = append(localTools, k8sTools...)
-				log.Info("Wired builtin k8s tools", "kagentURL", kagentURL, "tools", missingK8s)
+				localTools = append(localTools, proxied...)
+				log.Info("Wired controller-proxied builtin tools", "kagentURL", kagentURL,
+					"k8sTools", missingK8s, "jenkinsTools", missingJenkins)
 			}
 		}
 	}

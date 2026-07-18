@@ -87,4 +87,12 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Native <select> popup lists don't inherit the app theme: with a
+     transparent select background the options render white-on-white in dark
+     mode. Pin both so every dropdown stays readable in either theme. */
+  select,
+  select option {
+    @apply bg-background text-foreground;
+  }
 }

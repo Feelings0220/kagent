@@ -141,7 +141,10 @@ type Config struct {
 	// (apply/delete/scale/rollout-restart) that back the agent k8s_* write
 	// tools. Off by default; each tool call is additionally HITL-gated.
 	EnableClusterWriteTools bool
-	Database                struct {
+	// DefaultBuiltinTools is a comma-separated builtin toolpack merged into
+	// every declarative agent (opt-out per agent via disableDefaultTools).
+	DefaultBuiltinTools string
+	Database            struct {
 		Url           string
 		UrlFile       string
 		VectorEnabled bool
@@ -197,6 +200,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure or trusted-proxy")
 	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
+
+	commandLine.StringVar(&cfg.DefaultBuiltinTools, "default-builtin-tools",
+		"k8s_get_resource,k8s_list_resources,k8s_pod_logs,k8s_events,k8s_api_resources,jenkins_console_log,jenkins_job_info,jenkins_list_builds",
+		"Comma-separated builtin tools merged into every declarative agent (read-only query toolpack). Empty disables the default toolpack. Agents opt out individually via spec.declarative.disableDefaultTools.")
 
 	commandLine.BoolVar(&cfg.EnableClusterWriteTools, "enable-cluster-write-tools", false,
 		"When set, enable the destructive cluster endpoints (apply/delete/scale/rollout-restart) that back the agent k8s_* write tools. Off by default.")
@@ -445,6 +452,13 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 
 	// filter out invalid namespaces from the watchNamespaces flag (comma separated list)
 	watchNamespacesList := filterValidNamespaces(strings.Split(cfg.WatchNamespaces, ","))
+
+	// Default builtin toolpack merged into every declarative agent.
+	for _, name := range strings.Split(cfg.DefaultBuiltinTools, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			agent_translator.DefaultBuiltinTools = append(agent_translator.DefaultBuiltinTools, name)
+		}
+	}
 
 	clientOpts := client.Options{}
 	if len(watchNamespacesList) > 0 {

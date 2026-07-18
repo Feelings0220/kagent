@@ -201,6 +201,11 @@ type DeclarativeAgentSpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Tools []*Tool `json:"tools,omitempty"`
+	// DisableDefaultTools opts this agent out of the deployment-wide default
+	// builtin tools (read-only cluster/CI query tools merged in by the
+	// controller). Explicitly declared tools are unaffected.
+	// +optional
+	DisableDefaultTools bool `json:"disableDefaultTools,omitempty"`
 	// A2AConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
@@ -484,7 +489,7 @@ const (
 // read RBAC, and the destructive tools (k8s_apply, k8s_delete, k8s_scale,
 // k8s_rollout_restart) additionally require per-call user approval and the
 // controller's --enable-cluster-write-tools opt-in.
-// +kubebuilder:validation:Enum=bash;read_file;write_file;edit_file;k8s_get_resource;k8s_list_resources;k8s_pod_logs;k8s_events;k8s_api_resources;k8s_apply;k8s_delete;k8s_scale;k8s_rollout_restart
+// +kubebuilder:validation:Enum=bash;read_file;write_file;edit_file;k8s_get_resource;k8s_list_resources;k8s_pod_logs;k8s_events;k8s_api_resources;k8s_apply;k8s_delete;k8s_scale;k8s_rollout_restart;jenkins_console_log;jenkins_job_info;jenkins_list_builds
 type BuiltinToolName string
 
 const (
@@ -502,6 +507,10 @@ const (
 	BuiltinToolName_K8sDelete         BuiltinToolName = "k8s_delete"
 	BuiltinToolName_K8sScale          BuiltinToolName = "k8s_scale"
 	BuiltinToolName_K8sRolloutRestart BuiltinToolName = "k8s_rollout_restart"
+
+	BuiltinToolName_JenkinsConsoleLog BuiltinToolName = "jenkins_console_log"
+	BuiltinToolName_JenkinsJobInfo    BuiltinToolName = "jenkins_job_info"
+	BuiltinToolName_JenkinsListBuilds BuiltinToolName = "jenkins_list_builds"
 )
 
 // BuiltinTool enables built-in tools for the agent without requiring skills
@@ -509,7 +518,7 @@ const (
 type BuiltinTool struct {
 	// Names of the built-in tools to enable.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=13
+	// +kubebuilder:validation:MaxItems=16
 	// +required
 	Names []BuiltinToolName `json:"names"`
 }
