@@ -365,6 +365,17 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		}
 	}
 
+	// Merge the deployment-wide default builtin toolpack (read-only query
+	// tools) so agents can investigate the cluster without per-agent tool
+	// configuration. Agents opt out via spec.declarative.disableDefaultTools.
+	if !spec.Declarative.DisableDefaultTools {
+		for _, name := range DefaultBuiltinTools {
+			if name != "" && !slices.Contains(cfg.BuiltinTools, name) {
+				cfg.BuiltinTools = append(cfg.BuiltinTools, name)
+			}
+		}
+	}
+
 	if spec.Declarative.PromptTemplate != nil && len(spec.Declarative.PromptTemplate.DataSources) > 0 {
 		lookup, err := resolvePromptSources(ctx, a.kube, agent.GetNamespace(), spec.Declarative.PromptTemplate.DataSources)
 		if err != nil {

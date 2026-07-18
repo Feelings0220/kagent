@@ -117,6 +117,89 @@ func Test_AdkApiTranslator_BuiltinTools(t *testing.T) {
 	}
 }
 
+// The deployment-wide default toolpack is merged into every declarative agent
+// unless the agent opts out via disableDefaultTools.
+func Test_AdkApiTranslator_DefaultBuiltinTools(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "default"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4",
+			Provider: v1alpha2.ModelProviderOpenAI,
+		},
+	}
+
+	previous := translator.DefaultBuiltinTools
+	translator.DefaultBuiltinTools = []string{"k8s_get_resource", "k8s_events"}
+	t.Cleanup(func() { translator.DefaultBuiltinTools = previous })
+
+	makeAgent := func(disable bool, tools []*v1alpha2.Tool) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage:       "You are a test agent",
+					ModelConfig:         "test-model",
+					Tools:               tools,
+					DisableDefaultTools: disable,
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		agent        *v1alpha2.Agent
+		wantBuiltins []string
+	}{
+		{
+			name:         "defaults merged into empty tool list",
+			agent:        makeAgent(false, nil),
+			wantBuiltins: []string{"k8s_get_resource", "k8s_events"},
+		},
+		{
+			name: "defaults deduplicated against explicit tools",
+			agent: makeAgent(false, []*v1alpha2.Tool{
+				{
+					Type: v1alpha2.ToolProviderType_Builtin,
+					Builtin: &v1alpha2.BuiltinTool{
+						Names: []v1alpha2.BuiltinToolName{
+							v1alpha2.BuiltinToolName_K8sGetResource,
+							v1alpha2.BuiltinToolName_Bash,
+						},
+					},
+				},
+			}),
+			wantBuiltins: []string{"k8s_get_resource", "bash", "k8s_events"},
+		},
+		{
+			name:         "disableDefaultTools opts out",
+			agent:        makeAgent(true, nil),
+			wantBuiltins: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(modelConfig.DeepCopy()).
+				Build()
+
+			defaultModel := types.NamespacedName{Namespace: "default", Name: "test-model"}
+			trans := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+			outputs, err := translator.TranslateAgent(context.Background(), trans, tt.agent)
+
+			require.NoError(t, err)
+			require.NotNil(t, outputs.Config)
+			assert.Equal(t, tt.wantBuiltins, outputs.Config.BuiltinTools)
+		})
+	}
+}
+
 // Builtin bash executes in the runtime sandbox, so it must trigger the same
 // pod isolation settings as skills; file-only builtin tools must not.
 func Test_BuiltinTools_BashRequiresIsolation(t *testing.T) {

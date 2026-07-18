@@ -10704,6 +10704,12 @@ spec:
                     - message: serviceAccountName and serviceAccountConfig are mutually
                         exclusive
                       rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
+                  disableDefaultTools:
+                    description: |-
+                      DisableDefaultTools opts this agent out of the deployment-wide default
+                      builtin tools (read-only cluster/CI query tools merged in by the
+                      controller). Explicitly declared tools are unaffected.
+                    type: boolean
                   executeCodeBlocks:
                     description: |-
                       Allow code execution for python code blocks with this agent.
@@ -10860,8 +10866,11 @@ spec:
                                 - k8s_delete
                                 - k8s_scale
                                 - k8s_rollout_restart
+                                - jenkins_console_log
+                                - jenkins_job_info
+                                - jenkins_list_builds
                                 type: string
-                              maxItems: 13
+                              maxItems: 16
                               minItems: 1
                               type: array
                           required:

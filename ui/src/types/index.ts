@@ -379,6 +379,8 @@ export interface DeclarativeAgentSpec {
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
   promptTemplate?: PromptTemplateSpec;
+  /** Opt out of the deployment-wide default builtin tools (read-only cluster/CI query toolpack). */
+  disableDefaultTools?: boolean;
 }
 
 export interface ContextConfig {

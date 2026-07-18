@@ -13,7 +13,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { getAgent, updateAgentTools } from "@/app/actions/agents";
+import { getAgent, updateAgentTools, updateAgentDefaultTools } from "@/app/actions/agents";
+import { Switch } from "@/components/ui/switch";
 import { getServers } from "@/app/actions/servers";
 import { useChatAgentType, useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
 import { isAgentTool, isMcpTool, parseGroupKind } from "@/lib/toolUtils";
@@ -59,6 +60,10 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
   const [draftTools, setDraftTools] = useState<Tool[]>([]);
   const [servers, setServers] = useState<ToolServerResponse[]>([]);
   const [addFromServer, setAddFromServer] = useState<string | null>(null);
+  // Deployment-wide default read toolpack (k8s/Jenkins query tools): on
+  // unless the agent set disableDefaultTools. Toggling saves immediately.
+  const [defaultToolsEnabled, setDefaultToolsEnabled] = useState(true);
+  const [isTogglingDefaults, setIsTogglingDefaults] = useState(false);
 
   const isDirty = useMemo(
     () => JSON.stringify(draftTools) !== JSON.stringify(originalTools),
@@ -88,6 +93,7 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
       // namespaces, corrupting the spec on the write path.
       setOriginalTools(tools);
       setDraftTools(tools);
+      setDefaultToolsEnabled(!agentRes.data.agent.spec.declarative?.disableDefaultTools);
       setServers(serversRes.data ?? []);
       setAddFromServer(null);
     } finally {
@@ -99,6 +105,24 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
     setOpen(nextOpen);
     if (nextOpen) {
       loadData();
+    }
+  };
+
+  /** Toggle the default read toolpack; saves to the Agent resource immediately. */
+  const handleToggleDefaultTools = async (enabled: boolean) => {
+    setIsTogglingDefaults(true);
+    setDefaultToolsEnabled(enabled);
+    try {
+      const response = await updateAgentDefaultTools(agentName, namespace, enabled);
+      if (response.error) {
+        setDefaultToolsEnabled(!enabled);
+        toast.error(response.message || "Failed to update default tools");
+        return;
+      }
+      toast.success(enabled ? "Default cluster access enabled" : "Default cluster access disabled");
+      router.refresh();
+    } finally {
+      setIsTogglingDefaults(false);
     }
   };
 
@@ -227,6 +251,7 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
   // is always approval-gated per call.
   const K8S_READ_TOOL_NAMES = ["k8s_get_resource", "k8s_list_resources", "k8s_pod_logs", "k8s_events", "k8s_api_resources"];
   const K8S_WRITE_TOOL_NAMES = ["k8s_apply", "k8s_delete", "k8s_scale", "k8s_rollout_restart"];
+  const JENKINS_TOOL_NAMES = ["jenkins_console_log", "jenkins_job_info", "jenkins_list_builds"];
   const alreadyAdded = new Set(
     mcpEntries.flatMap(t =>
       (t.mcpServer?.toolNames ?? []).map(n => `${mcpServerRef(t as Tool, namespace)}::${n}`)
@@ -251,6 +276,26 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
         <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
           Tools & permissions
         </div>
+
+        {!isLoading && (
+          <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-medium">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" aria-hidden />
+                Default cluster access
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Read-only k8s & CI query tools (logs, YAML, events). On by default; write ops always ask first.
+              </p>
+            </div>
+            <Switch
+              checked={defaultToolsEnabled}
+              onCheckedChange={handleToggleDefaultTools}
+              disabled={isTogglingDefaults}
+              aria-label="Toggle default cluster access"
+            />
+          </div>
+        )}
 
         <div className="max-h-80 overflow-y-auto p-2 space-y-3">
           {isLoading && (
@@ -414,6 +459,24 @@ export default function ChatToolsPanel({ agentName, namespace }: ChatToolsPanelP
                       <Plus className="h-3 w-3" aria-hidden /> all read tools
                     </button>
                     {K8S_READ_TOOL_NAMES.filter(n => !builtinNames.includes(n)).map(name => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => addBuiltinName(name)}
+                        className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
+                      >
+                        <Plus className="h-3 w-3" aria-hidden /> {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {addFromServer !== null && JENKINS_TOOL_NAMES.some(n => !builtinNames.includes(n)) && (
+                <div className="mt-2 px-2">
+                  <div className="pb-1 text-[11px] text-muted-foreground">CI — Jenkins (console logs, job status)</div>
+                  <div className="flex flex-wrap gap-1">
+                    {JENKINS_TOOL_NAMES.filter(n => !builtinNames.includes(n)).map(name => (
                       <button
                         key={name}
                         type="button"

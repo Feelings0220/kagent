@@ -55,6 +55,9 @@ data:
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
   ENABLE_CLUSTER_WRITE_TOOLS: {{ (((.Values.clusterTools).write).enabled) | default false | quote }}
+  {{- if not (kindIs "invalid" ((.Values.clusterTools).defaultBuiltinTools)) }}
+  DEFAULT_BUILTIN_TOOLS: {{ .Values.clusterTools.defaultBuiltinTools | quote }}
+  {{- end }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
   {{- $agentHost := "" }}
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.host (not (eq .Values.controller.agentDeployment.host "")) }}

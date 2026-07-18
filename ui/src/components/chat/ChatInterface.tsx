@@ -195,6 +195,26 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
 
+  // Shell-style composer history: this session's user message texts, oldest
+  // first, consecutive duplicates collapsed. Recalled with ArrowUp/ArrowDown.
+  const userMessageHistory = useMemo(() => {
+    const texts: string[] = [];
+    for (const msg of allMessages) {
+      if (msg.role !== "user") continue;
+      const text = (msg.parts ?? [])
+        .filter(part => part.kind === "text" && !(part.metadata as Record<string, unknown> | undefined)?.kagent_context)
+        .map(part => (part as { text?: string }).text ?? "")
+        .join("")
+        .trim();
+      if (text && texts[texts.length - 1] !== text) texts.push(text);
+    }
+    return texts;
+  }, [allMessages]);
+  // null = not browsing history; otherwise the index currently shown.
+  const historyIndexRef = useRef<number | null>(null);
+  // The in-progress draft to restore when stepping past the newest entry.
+  const historyDraftRef = useRef("");
+
   // Prompt tokens of the latest turn — the closest available approximation of
   // the current context size (used for the context-window meter).
   const contextTokens = useMemo(() => {
@@ -479,6 +499,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (guardResult === "blocked") return;
     }
 
+    historyIndexRef.current = null;
     setCurrentInputMessage("");
     setPendingAttachments([]);
     setPendingContexts([]);
@@ -1166,6 +1187,49 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Shell-style history recall: ArrowUp on the first line steps back through
+    // this session's sent messages, ArrowDown steps forward and finally
+    // restores the unsent draft. Never triggers mid-multiline navigation.
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.nativeEvent.isComposing) {
+      const textarea = textareaRef.current;
+      if (textarea && userMessageHistory.length > 0) {
+        const { selectionStart, selectionEnd, value } = textarea;
+        const collapsed = selectionStart === selectionEnd;
+        const onFirstLine = !value.slice(0, selectionStart).includes("\n");
+        const onLastLine = !value.slice(selectionEnd).includes("\n");
+        const placeCursorAtEnd = (text: string) =>
+          requestAnimationFrame(() => textarea.setSelectionRange(text.length, text.length));
+
+        if (e.key === "ArrowUp" && collapsed && onFirstLine) {
+          if (historyIndexRef.current === null) {
+            historyDraftRef.current = value;
+            historyIndexRef.current = userMessageHistory.length;
+          }
+          if (historyIndexRef.current > 0) {
+            e.preventDefault();
+            historyIndexRef.current -= 1;
+            const recalled = userMessageHistory[historyIndexRef.current];
+            setCurrentInputMessage(recalled);
+            placeCursorAtEnd(recalled);
+          }
+          return;
+        }
+        if (e.key === "ArrowDown" && collapsed && onLastLine && historyIndexRef.current !== null) {
+          e.preventDefault();
+          historyIndexRef.current += 1;
+          if (historyIndexRef.current >= userMessageHistory.length) {
+            historyIndexRef.current = null;
+            setCurrentInputMessage(historyDraftRef.current);
+            placeCursorAtEnd(historyDraftRef.current);
+          } else {
+            const recalled = userMessageHistory[historyIndexRef.current];
+            setCurrentInputMessage(recalled);
+            placeCursorAtEnd(recalled);
+          }
+          return;
+        }
+      }
+    }
     // Typing "@" at the start of a word opens the cluster context picker.
     if (e.key === "@") {
       const value = textareaRef.current?.value ?? "";
@@ -1340,7 +1404,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             ref={textareaRef}
             rows={1}
             value={currentInputMessage}
-            onChange={(e) => setCurrentInputMessage(e.target.value)}
+            onChange={(e) => {
+              // Manual edits leave history-browsing mode.
+              historyIndexRef.current = null;
+              setCurrentInputMessage(e.target.value);
+            }}
             placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
