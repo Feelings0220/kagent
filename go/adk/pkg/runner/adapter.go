@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -34,6 +35,7 @@ func CreateRunnerConfig(
 	sessionService *session.KAgentSessionService,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
+	proxyHTTPClient *http.Client,
 ) (runner.Config, map[string]string, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
@@ -51,7 +53,7 @@ func CreateRunnerConfig(
 		return runner.Config{}, nil, err
 	}
 
-	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
+	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, proxyHTTPClient, extraTools...)
 	if err != nil {
 		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
 	}
