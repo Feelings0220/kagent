@@ -111,32 +111,38 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			approvalSet[name] = true
 		}
 	}
-	// Destructive builtin k8s tools are always HITL-gated, independent of
-	// configuration. Session-level "always allow" keeps repeat calls cheap.
-	for _, builtinName := range agentConfig.BuiltinTools {
-		for _, writeName := range tools.K8sWriteToolNames {
-			if builtinName == writeName {
-				approvalSet[builtinName] = true
-			}
-		}
-	}
-
-	// Build BeforeToolCallbacks. Approval gating runs first.
+	// Build BeforeToolCallbacks. Approval/capability gating runs first.
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
 	// Strip synthetic HITL tool messages from the model request to avoid unnecessary token usage.
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
+	usesConfirmation := false
 
 	if len(approvalSet) > 0 {
 		log.Info("Wiring approval callback", "toolCount", len(approvalSet))
 		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))
+		usesConfirmation = true
+	}
+	// Capability gating: destructive builtin tools (e.g. k8s_*) are grouped
+	// into session-scoped capabilities the user grants once (via a model
+	// request_capability call or by approving a gated tool). Cheap no-op for
+	// agents without gated tools.
+	beforeToolCallbacks = append(beforeToolCallbacks, MakeCapabilityCallback())
+	usesConfirmation = true
+
+	if usesConfirmation {
 		beforeModelCallbacks = append(beforeModelCallbacks, MakeStripConfirmationPartsCallback())
 	}
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
 
+	instruction := agentConfig.Instruction + askUserRestraintInstruction
+	if hasToolNamed(localTools, RequestCapabilityToolName) {
+		instruction += capabilityRequestInstruction
+	}
+
 	llmAgentConfig := llmagent.Config{
 		Name:                 agentName,
 		Description:          agentConfig.Description,
-		Instruction:          agentConfig.Instruction + askUserRestraintInstruction,
+		Instruction:          instruction,
 		Model:                llmModel,
 		IncludeContents:      llmagent.IncludeContentsDefault,
 		Tools:                localTools,
@@ -248,6 +254,40 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 					"k8sTools", missingK8s, "jenkinsTools", missingJenkins)
 			}
 		}
+	}
+
+	// Capability escalation: an agent that can read the cluster can also
+	// *request* to write it. Mount the (capability-gated) write tools and the
+	// request_capability tool so the model can ask the user for cluster-write
+	// in-session. The write tools do nothing until the user grants the
+	// capability AND the controller has write endpoints enabled, so mounting
+	// them is safe (they are triple-gated).
+	if kagentURL := strings.TrimSpace(os.Getenv("KAGENT_URL")); kagentURL != "" && hasAnyToolNamed(localTools, tools.K8sReadToolNames) {
+		mounted := make(map[string]bool, len(localTools))
+		for _, t := range localTools {
+			mounted[t.Name()] = true
+		}
+		var missingWrite []string
+		for _, name := range tools.K8sWriteToolNames {
+			if !mounted[name] {
+				missingWrite = append(missingWrite, name)
+			}
+		}
+		if len(missingWrite) > 0 {
+			writeTools, err := tools.NewK8sTools(kagentURL, missingWrite, nil)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create builtin k8s write tools: %w", err)
+			}
+			localTools = append(localTools, writeTools...)
+		}
+		if !mounted[RequestCapabilityToolName] {
+			reqCapTool, err := NewRequestCapabilityTool()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create request_capability tool: %w", err)
+			}
+			localTools = append(localTools, reqCapTool)
+		}
+		log.Info("Wired capability escalation (gated write tools + request_capability)")
 	}
 
 	askUserTool, err := tools.NewAskUserTool()
