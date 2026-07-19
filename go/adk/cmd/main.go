@@ -178,7 +178,10 @@ func main() {
 		logger.Info("Memory service enabled", "appName", appName)
 	}
 
-	runnerConfig, subagentSessionIDs, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
+	// httpClient carries the runtime's service token; pass it so the
+	// controller-proxied builtin tools (k8s_*, jenkins_*) authenticate like
+	// the session/task-store calls do.
+	runnerConfig, subagentSessionIDs, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, httpClient)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)

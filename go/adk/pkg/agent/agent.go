@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ const askUserRestraintInstruction = "\n\nWhen you need information, prefer using
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
-	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, nil, extraTools...)
+	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, nil, nil, extraTools...)
 	return a, err
 }
 
@@ -49,7 +50,11 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 // outbound A2A events). Callers that only need the agent can use
 // CreateGoogleADKAgent.
 // Optional stsPlugin can be provided for token propagation to MCP tools.
-func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
+// proxyHTTPClient authenticates the controller-proxied builtin tools (k8s_*,
+// jenkins_*) the same way as the session/task-store calls, so they carry the
+// runtime's service token and pass the controller's auth in every mode. When
+// nil the tools fall back to http.DefaultClient (fine only in unsecure mode).
+func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, proxyHTTPClient *http.Client, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -81,7 +86,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		log.Info("Wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
 	}
 
-	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, log)
+	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, proxyHTTPClient, log)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -170,7 +175,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	return llmAgent, subagentSessionIDs, nil
 }
 
-func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log logr.Logger) ([]tool.Tool, error) {
+func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, proxyHTTPClient *http.Client, log logr.Logger) ([]tool.Tool, error) {
 	var localTools []tool.Tool
 	if agentConfig.Memory != nil {
 		log.Info("Memory configuration detected, adding memory tools")
@@ -230,11 +235,11 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 			// These tools proxy through the controller; without KAGENT_URL
 			// there is nothing to call, so they are skipped with a log line.
 			kagentURL := strings.TrimSpace(os.Getenv("KAGENT_URL"))
-			k8sTools, err := tools.NewK8sTools(kagentURL, missingK8s, nil)
+			k8sTools, err := tools.NewK8sTools(kagentURL, missingK8s, proxyHTTPClient)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create builtin k8s tools: %w", err)
 			}
-			jenkinsTools, err := tools.NewJenkinsTools(kagentURL, missingJenkins, nil)
+			jenkinsTools, err := tools.NewJenkinsTools(kagentURL, missingJenkins, proxyHTTPClient)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create builtin jenkins tools: %w", err)
 			}
